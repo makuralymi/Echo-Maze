@@ -101,17 +101,13 @@ onUnmounted(() => {
   delete window.__onMicReady
 })
 
-async function persistProgress() {
+function persistProgress() {
   if (unlockedLevel.value <= 1) return
-  try {
-    await saveProgress({ unlocked: unlockedLevel.value })
-  } catch (err) {
-    console.warn('存档失败:', err.message)
-  }
+  saveProgress({ unlocked: unlockedLevel.value })
 }
 
-async function onNextLevel() {
-  await persistProgress()
+function onNextLevel() {
+  persistProgress()
   nextLevel()
 }
 
