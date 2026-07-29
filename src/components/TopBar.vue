@@ -12,29 +12,33 @@
       </div>
     </div>
 
-    <!-- 弹窗菜单 -->
     <Teleport to="body">
-      <div v-if="showMenu" class="menu-backdrop" @click="showMenu = false"></div>
+      <div v-if="showMenu" class="menu-backdrop" @click="showMenu = false">
+        <div class="menu-dialog" @click.stop>
+          <div class="menu-title">暂停</div>
+
+          <button class="menu-item" @click="handle('restart')">回到起点</button>
+          <div class="menu-divider"></div>
+
+          <button class="menu-item" :class="{ active: cameraOn }" @click="handle('toggleCamera')">
+            探图模式 {{ cameraOn ? 'ON' : 'OFF' }}
+          </button>
+          <div class="menu-divider"></div>
+
+          <button class="menu-item" @click="handle('levels')">再探前路</button>
+          <div class="menu-divider"></div>
+
+          <button class="menu-item danger" @click="handle('home')">迷失</button>
+
+          <button class="close-btn" @click="showMenu = false">继续</button>
+        </div>
+      </div>
     </Teleport>
-    <div v-if="showMenu" class="menu-popover">
-      <button class="menu-item" @click="handle('restart')">
-        <span class="menu-icon">🔄</span>
-        <span class="menu-label">回到起点</span>
-      </button>
-      <button class="menu-item" @click="handle('levels')">
-        <span class="menu-icon">🗺️</span>
-        <span class="menu-label">再探前路</span>
-      </button>
-      <button class="menu-item danger" @click="handle('home')">
-        <span class="menu-icon">🚪</span>
-        <span class="menu-label">迷失</span>
-      </button>
-    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 
 defineProps({
   level: { type: Number, required: true },
@@ -42,14 +46,31 @@ defineProps({
   isMicOn: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['restart', 'levels', 'home'])
+const emit = defineEmits(['restart', 'levels', 'home', 'toggleCamera'])
 
 const showMenu = ref(false)
+const cameraOn = ref(false)
 
 function handle(action) {
+  if (action === 'toggleCamera') {
+    cameraOn.value = !cameraOn.value
+    emit('toggleCamera')
+    return
+  }
   showMenu.value = false
   emit(action)
 }
+
+// 同步全局镜头状态
+let raf = null
+function syncCamera() {
+  if (typeof window.__isCameraOn === 'function') {
+    cameraOn.value = window.__isCameraOn()
+  }
+  raf = requestAnimationFrame(syncCamera)
+}
+onMounted(() => { syncCamera() })
+onUnmounted(() => { if (raf) cancelAnimationFrame(raf) })
 </script>
 
 <style scoped>
@@ -73,14 +94,17 @@ function handle(action) {
 }
 #menu-toggle {
   background: transparent;
-  border: none;
+  border: 1px solid #555;
   color: #aaa;
-  font-size: 20px;
+  font-size: 18px;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 2px 10px;
   border-radius: 4px;
+  line-height: 1;
 }
-#menu-toggle:active {
+#menu-toggle:active,
+#menu-toggle:hover {
+  border-color: #fff;
   color: #fff;
 }
 #game-title {
@@ -104,56 +128,77 @@ function handle(action) {
   font-weight: bold;
 }
 
-/* 弹窗 */
-.menu-popover {
-  position: absolute;
-  top: 100%;
-  left: 12px;
-  background: #111;
+/* 全屏遮罩 + 居中弹窗 */
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+.menu-dialog {
+  background: #0a0a0a;
   border: 1px solid #333;
-  border-radius: 8px;
-  padding: 6px 0;
-  min-width: 180px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.8);
-  z-index: 31;
+  padding: 28px 24px 20px;
+  min-width: 260px;
+  max-width: 90vw;
+  text-align: center;
+}
+.menu-title {
+  font-size: 18px;
+  letter-spacing: 3px;
+  margin-bottom: 20px;
+  color: #fff;
 }
 .menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: block;
   width: 100%;
-  padding: 12px 16px;
+  padding: 14px 16px;
   border: none;
   background: transparent;
   color: #ccc;
   font-family: inherit;
   font-size: 14px;
+  letter-spacing: 1px;
   cursor: pointer;
   text-transform: none;
-  text-align: left;
-  border-radius: 0;
-}
-.menu-item:hover {
-  background: rgba(255,255,255,0.05);
-  color: #fff;
-}
-.menu-item:active {
-  background: rgba(255,255,255,0.1);
-}
-.menu-item.danger {
-  color: #ff5252;
-}
-.menu-icon {
-  font-size: 16px;
-  width: 22px;
   text-align: center;
 }
-.menu-label {
-  font-size: 14px;
+.menu-item:hover {
+  color: #fff;
 }
-.menu-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 29;
+.menu-item.active {
+  color: #4CAF50;
+}
+.menu-item.danger {
+  color: #888;
+}
+.menu-item.danger:hover {
+  color: #ff5252;
+}
+.menu-divider {
+  height: 1px;
+  background: #1a1a1a;
+  margin: 0 16px;
+}
+.close-btn {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  padding: 12px 16px;
+  border: 1px solid #444;
+  background: transparent;
+  color: #888;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+.close-btn:hover {
+  border-color: #fff;
+  color: #fff;
 }
 </style>

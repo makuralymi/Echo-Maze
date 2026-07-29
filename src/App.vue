@@ -7,6 +7,7 @@
       @restart="onRestart"
       @levels="onMenu"
       @home="onHome"
+      @toggle-camera="onToggleCamera"
     />
 
     <GameCanvas
@@ -123,6 +124,12 @@ function onRestart() {
 // "迷失" → 回到首页（menu），不保存当前进度
 function onHome() {
   goToMenu()
+}
+
+function onToggleCamera() {
+  if (typeof window.__toggleCamera === 'function') {
+    window.__toggleCamera()
+  }
 }
 
 // 提供给 GameCanvas 中 LevelMenu 选择关卡的回调
