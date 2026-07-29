@@ -1,19 +1,10 @@
 // 音频/麦克风处理逻辑
 import { ref } from 'vue'
-
-/**
- * 自动检测当前环境是否为 B站 Toy 平台：
- * - Toy 平台会注入 toy-sdk.js，window.toy 上挂载 requestMicrophone / stopMedia 等方法
- * - 本地调试 / 普通浏览器则走标准 Web API
- */
-function isToyPlatform() {
-  return typeof window.toy !== 'undefined'
-    && typeof window.toy.requestMicrophone === 'function'
-}
+import { isToyAvailable, markToyUnavailable } from './useToyEnv.js'
 
 export function useAudio() {
   const isMicOn = ref(false)
-  const toySDK = ref(isToyPlatform())
+  const toySDK = ref(isToyAvailable())
 
   let audioContext = null
   let analyser = null
@@ -36,6 +27,7 @@ export function useAudio() {
       } catch (e) {
         // Toy SDK 加载了但不在 B站 App 内（如部署在 Cloudflare），回退浏览器 API
         console.warn('Toy SDK 麦克风调用失败，回退浏览器原生 API:', e.message)
+        markToyUnavailable()
         toySDK.value = false
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       }

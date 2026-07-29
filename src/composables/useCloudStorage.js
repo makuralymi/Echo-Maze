@@ -1,44 +1,28 @@
-// Toy SDK 云存档封装
-// key 只含字母、数字、下划线、短横线，≤128 字节；value 字符串 ≤1024 字节
-// 自动检测 Toy 平台：Toy 容器可用则走云存储，否则回退 localStorage
-// 所有 Toy SDK 调用均带超时保护，避免在非 Toy 环境（如 Cloudflare 部署）长期阻塞
+// 存档 IO —— Toy SDK 云存储 / localStorage 自动切换
+// 依赖 useToyEnv 统一判断，不在 Toy 容器绝不碰 window.toy
+
+import { isToyAvailable } from './useToyEnv.js'
 
 const STORAGE_KEY = 'save'
 const LOCAL_KEY = 'echo-maze-save'
 
-/** 快速检测是否在真正的 Toy 容器内 */
-function isToyCapable() {
-  return typeof window.toy !== 'undefined'
-    && typeof window.toy.requestMicrophone === 'function'
-}
-
-/** 带超时的 Promise 包装 */
-function withTimeout(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
-  ])
-}
-
 export function useCloudStorage() {
-  // 初始化时检测一次
-  const capable = isToyCapable()
-
   /** 加载存档，失败或无存档返回 null */
   async function load() {
-    if (!capable) {
-      return loadLocal()
-    }
+    // 先读本地（不做网络请求）
+    const local = loadLocal()
+    if (!isToyAvailable()) return local
+
+    // Toy 环境：读云端，失败回退本地
     try {
-      const data = await withTimeout(window.toy.getCloudStorage([STORAGE_KEY]), 3000)
+      const data = await window.toy.getCloudStorage([STORAGE_KEY])
       if (data && data[STORAGE_KEY]) {
         return JSON.parse(data[STORAGE_KEY])
       }
-      return null
-    } catch (err) {
-      console.warn('Toy 云存档读取失败，回退本地:', err.message)
-      return loadLocal()
+    } catch {
+      // 云端读取失败，用本地
     }
+    return local
   }
 
   function loadLocal() {
@@ -50,19 +34,15 @@ export function useCloudStorage() {
     }
   }
 
-  /** 保存存档对象（不阻塞——写入本地，云端异步） */
+  /** 保存存档 —— 本地写入立即完成，云端异步（不阻塞） */
   function save(data) {
     const json = JSON.stringify(data)
-    // 本地写入立即完成，不阻塞任何流程
-    try {
-      localStorage.setItem(LOCAL_KEY, json)
-    } catch { /* ignore */ }
+    try { localStorage.setItem(LOCAL_KEY, json) } catch { /* ignore */ }
 
-    if (!capable) return
-
-    // 云端写入失败不抛错，静默降级
-    withTimeout(window.toy.setCloudStorage({ [STORAGE_KEY]: json }), 3000)
-      .catch(err => console.warn('Toy 云存档保存失败:', err.message))
+    if (!isToyAvailable()) return
+    // 云端写入：fire-and-forget，失败不抛
+    window.toy.setCloudStorage({ [STORAGE_KEY]: json })
+      .catch(() => {})
   }
 
   return { load, save }
