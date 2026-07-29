@@ -252,14 +252,8 @@ export function useGame() {
     const path = dogWorldPath.value
     let idx = dogPos.idx
 
-    // 向目标点移动
-    if (idx >= path.length) {
-      // 到达终点，重新开始
-      dogPos.idx = 0
-      dogPos.x = path[0].x
-      dogPos.y = path[0].y
-      return
-    }
+    // 到达终点，停止
+    if (idx >= path.length) return
 
     const target = path[idx]
     const dx = target.x - dogPos.x
@@ -271,6 +265,9 @@ export function useGame() {
       dogPos.x = target.x
       dogPos.y = target.y
       dogPos.idx = idx + 1
+
+      // 每到路径节点发出微弱声波（狗狗叫声）
+      triggerDogPing()
     } else {
       // 向目标移动
       dogPos.x += (dx / dist) * speed
@@ -284,11 +281,23 @@ export function useGame() {
         const nd = Math.sqrt(ndx * ndx + ndy * ndy)
         if (nd < cellSize.value * 0.8) {
           dogPos.idx++
+          triggerDogPing()
         } else {
           break
         }
       }
     }
+  }
+
+  // 狗狗微弱声波
+  function triggerDogPing() {
+    pings.value.push({
+      x: dogPos.x,
+      y: dogPos.y,
+      currentR: 5,
+      maxR: cellSize.value * 2.5,
+      speed: 0.8
+    })
   }
 
   return {

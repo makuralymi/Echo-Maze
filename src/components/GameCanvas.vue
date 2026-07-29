@@ -330,11 +330,11 @@ function drawDogPath() {
 
   // 画已走过的路径（发光轨迹）
   ctx.save()
-  ctx.strokeStyle = 'rgba(255, 215, 0, 0.4)'
+  ctx.strokeStyle = 'rgba(76, 175, 80, 0.4)'
   ctx.lineWidth = 3
   ctx.lineCap = 'round'
   ctx.shadowBlur = 8
-  ctx.shadowColor = 'rgba(255, 215, 0, 0.6)'
+  ctx.shadowColor = 'rgba(76, 175, 80, 0.6)'
   ctx.beginPath()
   ctx.moveTo(path[0].x, path[0].y)
   for (let i = 1; i <= idx && i < path.length; i++) {
@@ -350,7 +350,7 @@ function drawDogPath() {
 
   // 画未来路径（虚线效果）
   ctx.save()
-  ctx.strokeStyle = 'rgba(255, 215, 0, 0.15)'
+  ctx.strokeStyle = 'rgba(76, 175, 80, 0.15)'
   ctx.lineWidth = 2
   ctx.lineCap = 'round'
   ctx.setLineDash([6, 8])
@@ -366,7 +366,7 @@ function drawDogPath() {
   // 终点高亮标记
   const last = path[path.length - 1]
   ctx.save()
-  ctx.fillStyle = 'rgba(255, 215, 0, 0.3)'
+  ctx.fillStyle = 'rgba(76, 175, 80, 0.3)'
   ctx.beginPath()
   ctx.arc(last.x, last.y, (props.cellSize || 30) * 0.25, 0, Math.PI * 2)
   ctx.fill()
@@ -375,13 +375,13 @@ function drawDogPath() {
 
 function drawDog() {
   const dogPos = props.dogPos
-  // 狗狗用橙色发光点表示
+  // 狗狗用绿色发光点表示
   ctx.save()
   ctx.beginPath()
   ctx.arc(dogPos.x, dogPos.y, (props.cellSize || 30) * 0.14, 0, Math.PI * 2)
-  ctx.fillStyle = '#FF9800'
+  ctx.fillStyle = '#4CAF50'
   ctx.shadowBlur = 14
-  ctx.shadowColor = '#FF9800'
+  ctx.shadowColor = '#4CAF50'
   ctx.fill()
   ctx.shadowBlur = 0
   ctx.restore()
