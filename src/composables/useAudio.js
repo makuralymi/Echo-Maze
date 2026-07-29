@@ -11,6 +11,8 @@ export function useAudio() {
   let microphone = null
   let dataArray = null
   let mediaStream = null
+  // Toy SDK 麦克风解码用：WebRTC 远端音轨需要 audio 节点驱动 Chromium 解码
+  let audioSink = null
 
   async function startMicrophone() {
     const AudioContext = window.AudioContext || window.webkitAudioContext
@@ -30,6 +32,18 @@ export function useAudio() {
         markToyUnavailable()
         toySDK.value = false
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      }
+
+      // Toy SDK 返回的是 WebRTC 远端音轨，必须挂载静音 <audio> 节点驱动解码，
+      // 否则 AnalyserNode 拿不到任何数据
+      if (toySDK.value) {
+        audioSink = document.createElement('audio')
+        audioSink.autoplay = true
+        audioSink.muted = true
+        audioSink.playsInline = true
+        audioSink.srcObject = mediaStream
+        document.body.appendChild(audioSink)
+        await audioSink.play()
       }
     } else {
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
@@ -60,6 +74,13 @@ export function useAudio() {
   function stopMicrophone() {
     if (mediaStream) {
       if (toySDK.value) {
+        // 移除解码用的静音 audio 节点
+        if (audioSink) {
+          audioSink.pause()
+          audioSink.srcObject = null
+          audioSink.remove()
+          audioSink = null
+        }
         window.toy.stopMedia(mediaStream).catch(() => {})
       } else {
         mediaStream.getTracks().forEach(track => track.stop())
