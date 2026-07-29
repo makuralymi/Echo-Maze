@@ -40,7 +40,11 @@
       :dog-world-path="dogWorldPath"
       :dog-pos="dogPos"
       :dog-anim-id="dogAnimId"
+      :dog-easter-egg="dogEasterEgg"
+      :dog-finished="dogFinished"
+      :dog-audio-mode="dogAudioMode"
       :update-dog="updateDog"
+      @easter-egg-done="easterEggDone"
       @next-level="onNextLevel"
       @menu="onMenu"
       @restart="onRestart"
@@ -88,8 +92,12 @@ const {
   dogWorldPath,
   dogPos,
   dogAnimId,
+  dogEasterEgg,
+  dogFinished,
+  dogAudioMode,
   activateDog,
   deactivateDog,
+  easterEggDone,
   updateDog,
 } = useGame()
 
@@ -150,6 +158,10 @@ function onToggleCamera() {
 
 function onHelpDog() {
   activateDog()
+}
+
+function onEasterEggDone() {
+  easterEggDone()
 }
 
 // 提供给 GameCanvas 中 StartScreen / LevelMenu 的回调

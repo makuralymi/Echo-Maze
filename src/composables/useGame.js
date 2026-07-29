@@ -26,6 +26,10 @@ export function useGame() {
   const dogWorldPath = ref([])    // 世界坐标路径 [{x, y}, ...]
   const dogPos = reactive({ x: 0, y: 0, idx: 0 })  // 当前狗狗位置
   const dogAnimId = ref(0)
+  const dogUseCount = ref(0)      // 布鲁斯使用次数（持久化）
+  const dogAudioMode = ref(null)  // 'dog' | 'dago' | 'dage' | null
+  const dogEasterEgg = ref(false) // 触发彩蛋动画
+  const dogFinished = ref(false)  // 狗狗到达终点
 
   // 绘图参数
   const cellSize = ref(0)
@@ -203,6 +207,9 @@ export function useGame() {
     dogActive.value = false
     dogPath.value = []
     dogWorldPath.value = []
+    dogAudioMode.value = null
+    dogFinished.value = false
+    dogEasterEgg.value = false
     markLevelCleared(currentLevel.value)
     if (isLastLevel()) {
       gamePhase.value = 'victory'
@@ -215,6 +222,20 @@ export function useGame() {
   function activateDog() {
     if (!isPlaying.value) return
 
+    dogUseCount.value++
+
+    // 每第三次使用触发彩蛋
+    if (dogUseCount.value % 3 === 0) {
+      dogAudioMode.value = 'dago'
+      dogEasterEgg.value = true
+      return // 先触发彩蛋动画，动画结束后由 easterEggDone() 继续
+    }
+
+    // 正常模式：直接开始寻路
+    startDogPathfinding()
+  }
+
+  function startDogPathfinding() {
     // 计算寻路路径
     const path = findPath(
       grid.value, cols.value, rows.value,
@@ -236,7 +257,20 @@ export function useGame() {
     dogPos.y = worldPath[0].y
     dogPos.idx = 0
     dogAnimId.value++
+    dogFinished.value = false
     dogActive.value = true
+
+    // 设置音频模式
+    if (dogAudioMode.value !== 'dage') {
+      dogAudioMode.value = 'dog'
+    }
+  }
+
+  function easterEggDone() {
+    dogEasterEgg.value = false
+    // 彩蛋动画结束后使用 dage 音频寻路
+    dogAudioMode.value = 'dage'
+    startDogPathfinding()
   }
 
   function deactivateDog() {
@@ -244,6 +278,8 @@ export function useGame() {
     dogPath.value = []
     dogWorldPath.value = []
     dogPos.idx = 0
+    dogAudioMode.value = null
+    dogFinished.value = false
   }
 
   function updateDog(speed) {
@@ -253,7 +289,10 @@ export function useGame() {
     let idx = dogPos.idx
 
     // 到达终点，停止
-    if (idx >= path.length) return
+    if (idx >= path.length) {
+      dogFinished.value = true
+      return
+    }
 
     const target = path[idx]
     const dx = target.x - dogPos.x
@@ -334,8 +373,12 @@ export function useGame() {
     dogWorldPath,
     dogPos,
     dogAnimId,
+    dogEasterEgg,
+    dogFinished,
+    dogAudioMode,
     activateDog,
     deactivateDog,
+    easterEggDone,
     updateDog,
   }
 }
