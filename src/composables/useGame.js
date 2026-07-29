@@ -1,16 +1,7 @@
 // 游戏核心状态与逻辑
 import { ref, reactive } from 'vue'
 import { useMaze } from './useMaze.js'
-
-const LEVEL_CONFIGS = [
-  { c: 8, r: 8 },
-  { c: 12, r: 12 },
-  { c: 16, r: 16 },
-  { c: 20, r: 20 },
-  { c: 24, r: 24 }
-]
-
-const TOTAL_LEVELS = LEVEL_CONFIGS.length
+import { LEVELS, getLevelConfig } from '../config/levelConfig.js'
 
 export function useGame() {
   const { Cell, createGrid, index, generateMaze, verifyPaths, addExtraPassages, updateCellCenters } = useMaze()
@@ -18,9 +9,9 @@ export function useGame() {
   // 游戏状态
   const isPlaying = ref(false)
   const currentLevel = ref(1)
-  const gamePhase = ref('start') // 'start' | 'playing' | 'transition' | 'victory'
+  const gamePhase = ref('menu') // 'menu' | 'playing' | 'transition' | 'victory'
 
-  // 迷宫数据 — 用 ref 包装以保证响应式
+  // 迷宫数据
   const grid = ref([])
   const cols = ref(0)
   const rows = ref(0)
@@ -34,9 +25,8 @@ export function useGame() {
   const offsetX = ref(0)
   const offsetY = ref(0)
 
-  function getLevelConfig() {
-    return LEVEL_CONFIGS[currentLevel.value - 1]
-  }
+  // 进度：已解锁的最高关卡 (1-based, 默认第1关解锁)
+  const unlockedLevel = ref(1)
 
   function calcMazeTransform(canvasWidth, canvasHeight) {
     const padding = canvasWidth > 500 ? 30 : 15
@@ -53,14 +43,13 @@ export function useGame() {
 
   function loadLevel(level) {
     currentLevel.value = level
-    const config = getLevelConfig()
+    const config = getLevelConfig(level - 1)
     cols.value = config.c
     rows.value = config.r
 
     const c = cols.value
     const r = rows.value
 
-    // 重复生成直到 (0,0) → (c-1,r-1) 可达
     let attempts = 0
     let result
     do {
@@ -71,32 +60,26 @@ export function useGame() {
     } while (!result.reachable && attempts < 50)
 
     if (!result.reachable) {
-      console.warn(`关卡 ${level} 无法生成可达路径，回退：连接起点到出口`)
+      console.warn(`关卡 ${level} 无法生成可达路径，回退：强制连接`)
       forceConnect(grid.value, c, r)
       result = verifyPaths(grid.value, c, r)
     }
 
-    // 随机打通额外通道，增加多路径探索感
-    const extraRate = 0.08 + level * 0.02  // 越后面越开放
-    addExtraPassages(grid.value, c, r, extraRate)
+    addExtraPassages(grid.value, c, r, config.extraRate)
 
-    // 额外通道后再次验证
     const afterExtra = verifyPaths(grid.value, c, r)
     console.log(
-      `关卡 ${level} (${c}x${r}) 验证通过: ` +
+      `关卡 ${level} (${c}x${r}) "${config.name}" 验证: ` +
       `可达 ${afterExtra.count}/${c * r} 格 (${afterExtra.reachable ? '√' : '✗'} 出口)`
     )
 
     player.c = 0
     player.r = 0
-
     exitCell.c = c - 1
     exitCell.r = r - 1
-
     pings.value = []
   }
 
-  /** 兜底：从起点向右下暴力挖通一条路径到出口 */
   function forceConnect(grid, cols, rows) {
     let pc = 0, pr = 0
     const maxSteps = cols + rows + 10
@@ -126,11 +109,10 @@ export function useGame() {
     player.drawX = offsetX.value + cellSize.value / 2
     player.drawY = offsetY.value + cellSize.value / 2
 
-    // 起始区域预亮
     const g = grid.value
     for (let i = 0; i < g.length; i++) {
       if (g[i].c <= 1 && g[i].r <= 1) {
-        g[i].revealTimer = 3.0
+        g[i].revealTimer = 1.0
       }
     }
   }
@@ -167,20 +149,29 @@ export function useGame() {
   }
 
   function isLastLevel() {
-    return currentLevel.value >= TOTAL_LEVELS
+    return currentLevel.value >= LEVELS.length
   }
 
-  function startGame() {
+  function markLevelCleared(level) {
+    if (level >= unlockedLevel.value && level < LEVELS.length) {
+      unlockedLevel.value = level + 1
+    }
+  }
+
+  function startLevel(level) {
+    currentLevel.value = level
     gamePhase.value = 'playing'
     isPlaying.value = true
-    loadLevel(currentLevel.value)
+    loadLevel(level)
   }
 
   function nextLevel() {
-    currentLevel.value++
+    const next = currentLevel.value + 1
+    markLevelCleared(currentLevel.value)
+    currentLevel.value = next
     gamePhase.value = 'playing'
     isPlaying.value = true
-    loadLevel(currentLevel.value)
+    loadLevel(next)
   }
 
   function restart() {
@@ -190,8 +181,14 @@ export function useGame() {
     loadLevel(1)
   }
 
+  function goToMenu() {
+    gamePhase.value = 'menu'
+    isPlaying.value = false
+  }
+
   function handleLevelComplete() {
     isPlaying.value = false
+    markLevelCleared(currentLevel.value)
     if (isLastLevel()) {
       gamePhase.value = 'victory'
     } else {
@@ -203,6 +200,7 @@ export function useGame() {
     isPlaying,
     currentLevel,
     gamePhase,
+    unlockedLevel,
     player,
     exitCell,
     grid,
@@ -219,9 +217,11 @@ export function useGame() {
     movePlayer,
     checkWin,
     isLastLevel,
-    startGame,
+    markLevelCleared,
+    startLevel,
     nextLevel,
     restart,
+    goToMenu,
     handleLevelComplete
   }
 }

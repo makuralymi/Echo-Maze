@@ -3,11 +3,12 @@
     <h1 class="victory-title">逃出生天</h1>
     <p>你凭借声纳走出了所有的深渊！</p>
     <button @click="emit('restart')">重头再来</button>
+    <button class="menu-btn" @click="emit('menu')">返回菜单</button>
   </div>
 </template>
 
 <script setup>
-const emit = defineEmits(['restart'])
+const emit = defineEmits(['restart', 'menu'])
 </script>
 
 <style scoped>
@@ -31,5 +32,12 @@ p {
   margin-bottom: 30px;
   line-height: 1.8;
   color: #aaa;
+}
+.menu-btn {
+  margin-top: 12px;
+  border-color: #555;
+  color: #888;
+  font-size: clamp(12px, 3vw, 14px);
+  padding: 8px 16px;
 }
 </style>

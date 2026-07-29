@@ -2,28 +2,36 @@
   <div id="game-container">
     <canvas ref="canvasRef" id="gameCanvas"></canvas>
 
+    <LevelMenu
+      v-if="gamePhase === 'menu'"
+      :levels="levelList"
+      @select="onSelectLevel"
+    />
+
     <StartScreen
       v-if="gamePhase === 'start'"
       :error="errorMsg"
       :start-microphone="startMicrophone"
-      @started="emit('started')"
+      @started="onMicReady"
     />
 
     <LevelTransition
       v-if="gamePhase === 'transition'"
-      :level="currentLevel"
       @next="emit('nextLevel')"
+      @menu="emit('menu')"
     />
 
     <VictoryScreen
       v-if="gamePhase === 'victory'"
       @restart="emit('restart')"
+      @menu="emit('menu')"
     />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import LevelMenu from './LevelMenu.vue'
 import StartScreen from './StartScreen.vue'
 import LevelTransition from './LevelTransition.vue'
 import VictoryScreen from './VictoryScreen.vue'
@@ -48,10 +56,11 @@ const props = defineProps({
   finalizeLevelSetup: Function,
   calcMazeTransform: Function,
   handleLevelComplete: Function,
-  startMicrophone: Function
+  startMicrophone: Function,
+  levelList: Array,
 })
 
-const emit = defineEmits(['started', 'nextLevel', 'restart'])
+const emit = defineEmits(['nextLevel', 'menu', 'restart'])
 
 const canvasRef = ref(null)
 let ctx = null
@@ -103,14 +112,13 @@ function update(timestamp) {
   props.player.drawX = lerp(props.player.drawX, targetX, 0.3)
   props.player.drawY = lerp(props.player.drawY, targetY, 0.3)
 
-  // 更新 cell reveal 计时器（反向累积模式：声波照射时推高，无波时缓慢衰减）
+  // 更新 cell reveal 计时器
   if (props.grid) {
     const g = props.grid
     const pings = props.pings
     for (let i = 0; i < g.length; i++) {
       const cell = g[i]
 
-      // 检查是否有声波覆盖该格子
       let hit = false
       let maxExposure = 0
       for (let pi = 0; pi < pings.length; pi++) {
@@ -120,35 +128,26 @@ function update(timestamp) {
         const dist = Math.sqrt(dx * dx + dy * dy)
         if (dist <= p.currentR) {
           hit = true
-          // 波圈内：根据离波前沿的距离计算曝光度（平滑淡入）
           const exp = Math.min(1, (p.currentR - dist) / (props.cellSize * 0.6) + 0.2)
           if (exp > maxExposure) maxExposure = exp
         }
       }
 
       if (hit) {
-        // 有声波照射：向上推到曝光值（快入）
-        const target = maxExposure * 1.0 // 峰值 1 秒
+        const target = maxExposure * 1.0
         cell.revealTimer += (target - cell.revealTimer) * Math.min(1, 6.0 * dt)
       } else {
-        // 没有声波：缓慢衰减（慢出，1-2秒消失）
-        cell.revealTimer -= 1.0 * dt // 约 1 秒从 max 跌到 0
+        cell.revealTimer -= 1.0 * dt
       }
 
       if (cell.revealTimer < 0.001) cell.revealTimer = 0
     }
   }
 
-  // 渲染声波
   drawPings()
-
-  // 渲染格子
   drawGrid()
-
-  // 渲染玩家
   drawPlayer()
 
-  // 检测胜利
   if (props.checkWin && props.checkWin()) {
     props.handleLevelComplete()
     return
@@ -165,18 +164,15 @@ function drawPings() {
 
     const baseAlpha = Math.max(0, 1 - (p.currentR / p.maxR))
 
-    // 双层渐变环：外层亮、内层暗，模拟能量向前沿集中
     const outerR = p.currentR
     const innerR = Math.max(0, p.currentR - 20)
 
-    // 外层亮环
     ctx.beginPath()
     ctx.arc(p.x, p.y, outerR, 0, Math.PI * 2)
     ctx.strokeStyle = `rgba(255, 255, 255, ${baseAlpha})`
     ctx.lineWidth = 2
     ctx.stroke()
 
-    // 内层淡环
     if (innerR > 5) {
       ctx.beginPath()
       ctx.arc(p.x, p.y, innerR, 0, Math.PI * 2)
@@ -205,7 +201,6 @@ function drawGrid() {
   grid.forEach(cell => {
     if (cell.revealTimer <= 0) return
 
-    // revealTimer 直接驱动 alpha，峰值 2 秒对应 alpha 1.0，平滑衰减到 0
     const alpha = Math.min(1, cell.revealTimer)
     const x = offsetX + cell.c * cellSize
     const y = offsetY + cell.r * cellSize
@@ -219,7 +214,6 @@ function drawGrid() {
     if (cell.walls.left) { ctx.moveTo(x, y + cellSize); ctx.lineTo(x, y) }
     ctx.stroke()
 
-    // 出口高亮
     if (cell.c === exitCell.c && cell.r === exitCell.r) {
       ctx.fillStyle = `rgba(76, 175, 80, ${alpha * 0.7})`
       ctx.fillRect(x + 4, y + 4, cellSize - 8, cellSize - 8)
@@ -237,6 +231,22 @@ function drawPlayer() {
   ctx.shadowColor = '#ffffff'
   ctx.fill()
   ctx.shadowBlur = 0
+}
+
+// 从菜单选择关卡
+function onSelectLevel(id) {
+  // 先请求麦克风，再进入游戏
+  props.startMicrophone().then(() => {
+    // 通过事件通知父组件进入关卡
+    window.__startLevel?.(id)
+  }).catch(err => {
+    console.error('麦克风权限失败:', err.message)
+  })
+}
+
+// 麦克风就绪（StartScreen 中的旧入口）
+function onMicReady() {
+  window.__startLevel?.(1)
 }
 
 // 触摸/键盘事件
@@ -275,7 +285,6 @@ function handleKeydown(e) {
   if (e.key === 'ArrowLeft' || e.key === 'a') props.movePlayer('left')
 }
 
-// 监听 playing 状态变化，启动/停止动画循环
 watch(
   () => props.isPlaying,
   (val) => {
@@ -310,8 +319,6 @@ onMounted(() => {
     if (canvas) {
       ctx = canvas.getContext('2d')
       resizeCanvas()
-
-      // 如果初始状态就是 playing，直接启动动画
       if (props.isPlaying && props.finalizeLevelSetup) {
         props.finalizeLevelSetup(canvas.width, canvas.height)
         animationId = requestAnimationFrame(update)

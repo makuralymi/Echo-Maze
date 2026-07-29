@@ -2,12 +2,11 @@
   <div class="app">
     <TopBar
       :level="currentLevel"
-      :total="5"
+      :total="totalLevels"
       :is-mic-on="isMicOn"
     />
 
     <GameCanvas
-      ref="gameCanvasRef"
       :game-phase="gamePhase"
       :current-level="currentLevel"
       :is-playing="isPlaying"
@@ -28,25 +27,31 @@
       :calc-maze-transform="calcMazeTransform"
       :handle-level-complete="handleLevelComplete"
       :start-microphone="startMicrophone"
-      @started="startGame"
-      @next-level="nextLevel"
-      @restart="restart"
+      :level-list="levelList"
+      @next-level="onNextLevel"
+      @menu="onMenu"
+      @restart="onRestart"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TopBar from './components/TopBar.vue'
 import GameCanvas from './components/GameCanvas.vue'
 import { useAudio } from './composables/useAudio.js'
 import { useGame } from './composables/useGame.js'
+import { useCloudStorage } from './composables/useCloudStorage.js'
+import { LEVELS, TOTAL_LEVELS } from './config/levelConfig.js'
 
 const { isMicOn, startMicrophone, getAudioLevels, stopMicrophone } = useAudio()
+const { load: loadSave, save: saveProgress } = useCloudStorage()
+
 const {
   isPlaying,
   currentLevel,
   gamePhase,
+  unlockedLevel,
   player,
   exitCell,
   grid,
@@ -58,18 +63,64 @@ const {
   triggerPing,
   movePlayer,
   checkWin,
-  startGame,
+  startLevel,
   nextLevel,
   restart,
+  goToMenu,
   finalizeLevelSetup,
   handleLevelComplete
 } = useGame()
 
 const errorMsg = ref('')
+const totalLevels = TOTAL_LEVELS
+
+const levelList = computed(() => {
+  return LEVELS.map(l => ({
+    ...l,
+    locked: l.id > unlockedLevel.value,
+    cleared: l.id < unlockedLevel.value,
+  }))
+})
+
+onMounted(async () => {
+  const saved = await loadSave()
+  if (saved && typeof saved.unlocked === 'number') {
+    unlockedLevel.value = Math.max(1, Math.min(TOTAL_LEVELS, saved.unlocked))
+  }
+})
 
 onUnmounted(() => {
   stopMicrophone()
+  delete window.__startLevel
 })
+
+async function persistProgress() {
+  if (unlockedLevel.value <= 1) return
+  try {
+    await saveProgress({ unlocked: unlockedLevel.value })
+  } catch (err) {
+    console.warn('存档失败:', err.message)
+  }
+}
+
+async function onNextLevel() {
+  await persistProgress()
+  nextLevel()
+}
+
+function onMenu() {
+  persistProgress()
+  goToMenu()
+}
+
+function onRestart() {
+  restart()
+}
+
+// 提供给 GameCanvas 中 LevelMenu 选择关卡的回调
+window.__startLevel = (id) => {
+  startLevel(id)
+}
 </script>
 
 <style>

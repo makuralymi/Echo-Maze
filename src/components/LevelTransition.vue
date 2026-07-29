@@ -3,11 +3,12 @@
     <h1>LEVEL CLEAR</h1>
     <p>黑暗迅速聚拢，你的声音是唯一的救赎...</p>
     <button @click="emit('next')">进入下一层</button>
+    <button class="menu-btn" @click="emit('menu')">返回菜单</button>
   </div>
 </template>
 
 <script setup>
-const emit = defineEmits(['next'])
+const emit = defineEmits(['next', 'menu'])
 </script>
 
 <style scoped>
@@ -30,5 +31,12 @@ p {
   margin-bottom: 30px;
   line-height: 1.8;
   color: #aaa;
+}
+.menu-btn {
+  margin-top: 12px;
+  border-color: #555;
+  color: #888;
+  font-size: clamp(12px, 3vw, 14px);
+  padding: 8px 16px;
 }
 </style>
