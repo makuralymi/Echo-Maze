@@ -1,8 +1,20 @@
 // 音频/麦克风处理逻辑
 import { ref } from 'vue'
 
+/**
+ * 自动检测当前环境是否为 B站 Toy 平台：
+ * - Toy 平台会注入 toy-sdk.js，window.toy 上挂载 requestMicrophone / stopMedia 等方法
+ * - 本地调试 / 普通浏览器则走标准 Web API
+ */
+function isToyPlatform() {
+  return typeof window.toy !== 'undefined'
+    && typeof window.toy.requestMicrophone === 'function'
+}
+
 export function useAudio() {
   const isMicOn = ref(false)
+  const toySDK = ref(isToyPlatform())
+
   let audioContext = null
   let analyser = null
   let microphone = null
@@ -17,12 +29,11 @@ export function useAudio() {
       await audioContext.resume()
     }
 
-    // 本地调试（非 Toy 平台环境）：直接走浏览器原生 getUserMedia
-    if (typeof window.toy === 'undefined') {
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-    } else {
-      // Toy 平台环境：通过 SDK 获取麦克风，必须在用户手势事件中同步调用
+    // 自动检测：Toy 平台走 SDK，否则走浏览器原生 API
+    if (toySDK.value) {
       mediaStream = await window.toy.requestMicrophone()
+    } else {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
     }
 
     analyser = audioContext.createAnalyser()
@@ -48,10 +59,12 @@ export function useAudio() {
   }
 
   function stopMicrophone() {
-    if (window.toy && mediaStream) {
-      window.toy.stopMedia(mediaStream).catch(() => {})
-    } else if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop())
+    if (mediaStream) {
+      if (toySDK.value) {
+        window.toy.stopMedia(mediaStream).catch(() => {})
+      } else {
+        mediaStream.getTracks().forEach(track => track.stop())
+      }
     }
     if (audioContext && audioContext.state !== 'closed') {
       audioContext.close()
@@ -64,5 +77,5 @@ export function useAudio() {
     isMicOn.value = false
   }
 
-  return { isMicOn, startMicrophone, getAudioLevels, stopMicrophone }
+  return { isMicOn, toySDK, startMicrophone, getAudioLevels, stopMicrophone }
 }
