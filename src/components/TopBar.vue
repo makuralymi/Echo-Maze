@@ -89,6 +89,7 @@ const showMenuBtn = computed(() => {
   return props.gamePhase === 'playing'
     || props.gamePhase === 'transition'
     || props.gamePhase === 'victory'
+    || props.gamePhase === 'menu'
 })
 const showLevel = computed(() => {
   return props.gamePhase !== 'start'
@@ -217,37 +218,22 @@ function initPreviewState() {
       }
     }
   }
-  // 回溯路径
+  // 回溯路径：沿 parent 链从终点走到起点，再反转得到从起点到终点的顺序
+  const rawPath = []
   let cur = { r: MAZE_ROWS - 1, c: MAZE_COLS - 1 }
-  const keySet = new Set()
   while (cur) {
-    keySet.add(`${cur.r},${cur.c}`)
+    rawPath.push(cur)
     const key = `${cur.r},${cur.c}`
     cur = parent.get(key)
-    if (cur && cur.r === 0 && cur.c === 0) {
-      keySet.add('0,0')
-      break
-    }
   }
-  // 将路径转为坐标数组（平滑插值）
-  const rawPath = []
-  for (const key of keySet) {
-    const [r, c] = key.split(',').map(Number)
-    rawPath.push({ r, c })
-  }
-  // 排序：从头到尾
-  rawPath.sort((a, b) => {
-    const distA = a.r + a.c
-    const distB = b.r + b.c
-    return distA - distB
-  })
+  rawPath.reverse() // 现在是起点 → 终点的有序路径
 
   // 生成平滑路径点（在相邻路径点之间插值）
   const smooth = []
   for (let i = 0; i < rawPath.length - 1; i++) {
     const a = rawPath[i]
     const b = rawPath[i + 1]
-    const steps = 8
+    const steps = 5
     for (let s = 0; s < steps; s++) {
       const t = s / steps
       smooth.push({
@@ -308,7 +294,7 @@ function startPreviewAnimation() {
       const s = previewState
       // 更新玩家在路径上的位置
       if (s.path.length > 0) {
-        s.pathIdx = (s.pathIdx + 1.2) % s.path.length
+        s.pathIdx = (s.pathIdx + 0.15) % s.path.length
         const idx = Math.floor(s.pathIdx) % s.path.length
         const next = (idx + 1) % s.path.length
         const frac = s.pathIdx - Math.floor(s.pathIdx)
@@ -318,10 +304,10 @@ function startPreviewAnimation() {
 
       // 模拟声波
       const now = ts
-      if (now - previewLastPing > 800) {
+      if (now - previewLastPing > 1400) {
         previewPings.push({
           x: s.playerX, y: s.playerY,
-          currentR: 0, maxR: CELL * 5, speed: CELL * 5 / 800,
+          currentR: 0, maxR: CELL * 5, speed: CELL * 4 / 800,
         })
         previewLastPing = now
       }
