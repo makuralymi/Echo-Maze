@@ -17,12 +17,12 @@ export function useAudio() {
       await audioContext.resume()
     }
 
-    // requestMicrophone 必须在用户手势事件中同步调用
-    // Toy SDK 文档已确认 App 和 Web 端都支持，无需 isSupport 检查
-    if (typeof window.toy !== 'undefined') {
-      mediaStream = await window.toy.requestMicrophone()
-    } else {
+    // 本地调试（非 Toy 平台环境）：直接走浏览器原生 getUserMedia
+    if (typeof window.toy === 'undefined') {
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    } else {
+      // Toy 平台环境：通过 SDK 获取麦克风，必须在用户手势事件中同步调用
+      mediaStream = await window.toy.requestMicrophone()
     }
 
     analyser = audioContext.createAnalyser()

@@ -13,26 +13,26 @@ const LEVEL_CONFIGS = [
 const TOTAL_LEVELS = LEVEL_CONFIGS.length
 
 export function useGame() {
-  const { Cell, createGrid, index, generateMaze, updateCellCenters } = useMaze()
+  const { Cell, createGrid, index, generateMaze, verifyPaths, addExtraPassages, updateCellCenters } = useMaze()
 
   // 游戏状态
   const isPlaying = ref(false)
   const currentLevel = ref(1)
   const gamePhase = ref('start') // 'start' | 'playing' | 'transition' | 'victory'
 
-  // 迷宫数据
-  let grid = []
-  let cols = 0
-  let rows = 0
+  // 迷宫数据 — 用 ref 包装以保证响应式
+  const grid = ref([])
+  const cols = ref(0)
+  const rows = ref(0)
 
   const player = reactive({ c: 0, r: 0, drawX: 0, drawY: 0 })
   const exitCell = reactive({ c: 0, r: 0 })
-  const pings = []
+  const pings = ref([])
 
   // 绘图参数
-  let cellSize = 0
-  let offsetX = 0
-  let offsetY = 0
+  const cellSize = ref(0)
+  const offsetX = ref(0)
+  const offsetY = ref(0)
 
   function getLevelConfig() {
     return LEVEL_CONFIGS[currentLevel.value - 1]
@@ -40,46 +40,97 @@ export function useGame() {
 
   function calcMazeTransform(canvasWidth, canvasHeight) {
     const padding = canvasWidth > 500 ? 30 : 15
-    cellSize = Math.floor(Math.min(
-      (canvasWidth - padding * 2) / cols,
-      (canvasHeight - padding * 2) / rows
+    cellSize.value = Math.floor(Math.min(
+      (canvasWidth - padding * 2) / cols.value,
+      (canvasHeight - padding * 2) / rows.value
     ))
-    offsetX = (canvasWidth - cols * cellSize) / 2
-    offsetY = (canvasHeight - rows * cellSize) / 2
+    offsetX.value = (canvasWidth - cols.value * cellSize.value) / 2
+    offsetY.value = (canvasHeight - rows.value * cellSize.value) / 2
 
-    player.drawX = offsetX + player.c * cellSize + cellSize / 2
-    player.drawY = offsetY + player.r * cellSize + cellSize / 2
+    player.drawX = offsetX.value + player.c * cellSize.value + cellSize.value / 2
+    player.drawY = offsetY.value + player.r * cellSize.value + cellSize.value / 2
   }
 
   function loadLevel(level) {
     currentLevel.value = level
     const config = getLevelConfig()
-    cols = config.c
-    rows = config.r
+    cols.value = config.c
+    rows.value = config.r
 
-    grid = createGrid(cols, rows)
-    generateMaze(grid, cols, rows)
+    const c = cols.value
+    const r = rows.value
+
+    // 重复生成直到 (0,0) → (c-1,r-1) 可达
+    let attempts = 0
+    let result
+    do {
+      grid.value = createGrid(c, r)
+      generateMaze(grid.value, c, r)
+      result = verifyPaths(grid.value, c, r)
+      attempts++
+    } while (!result.reachable && attempts < 50)
+
+    if (!result.reachable) {
+      console.warn(`关卡 ${level} 无法生成可达路径，回退：连接起点到出口`)
+      forceConnect(grid.value, c, r)
+      result = verifyPaths(grid.value, c, r)
+    }
+
+    // 随机打通额外通道，增加多路径探索感
+    const extraRate = 0.08 + level * 0.02  // 越后面越开放
+    addExtraPassages(grid.value, c, r, extraRate)
+
+    // 额外通道后再次验证
+    const afterExtra = verifyPaths(grid.value, c, r)
+    console.log(
+      `关卡 ${level} (${c}x${r}) 验证通过: ` +
+      `可达 ${afterExtra.count}/${c * r} 格 (${afterExtra.reachable ? '√' : '✗'} 出口)`
+    )
 
     player.c = 0
     player.r = 0
 
-    exitCell.c = cols - 1
-    exitCell.r = rows - 1
+    exitCell.c = c - 1
+    exitCell.r = r - 1
 
-    pings.length = 0
+    pings.value = []
+  }
+
+  /** 兜底：从起点向右下暴力挖通一条路径到出口 */
+  function forceConnect(grid, cols, rows) {
+    let pc = 0, pr = 0
+    const maxSteps = cols + rows + 10
+    for (let s = 0; s < maxSteps; s++) {
+      if (pc === cols - 1 && pr === rows - 1) break
+      const opts = []
+      if (pc < cols - 1) opts.push({ c: pc + 1, r: pr, dir: 'right' })
+      if (pr < rows - 1) opts.push({ c: pc, r: pr + 1, dir: 'bottom' })
+      if (pc > 0) opts.push({ c: pc - 1, r: pr, dir: 'left' })
+      if (pr > 0) opts.push({ c: pc, r: pr - 1, dir: 'top' })
+      const pick = opts[Math.floor(Math.random() * opts.length)]
+      const cur = grid[index(cols, rows, pc, pr)]
+      const nxt = grid[index(cols, rows, pick.c, pick.r)]
+      if (pick.dir === 'right') { cur.walls.right = false; nxt.walls.left = false }
+      else if (pick.dir === 'left') { cur.walls.left = false; nxt.walls.right = false }
+      else if (pick.dir === 'bottom') { cur.walls.bottom = false; nxt.walls.top = false }
+      else if (pick.dir === 'top') { cur.walls.top = false; nxt.walls.bottom = false }
+      pc = pick.c
+      pr = pick.r
+    }
   }
 
   function finalizeLevelSetup(canvasWidth, canvasHeight) {
     calcMazeTransform(canvasWidth, canvasHeight)
-    updateCellCenters(grid, offsetX, offsetY, cellSize)
+    updateCellCenters(grid.value, offsetX.value, offsetY.value, cellSize.value)
 
-    player.drawX = offsetX + cellSize / 2
-    player.drawY = offsetY + cellSize / 2
+    player.drawX = offsetX.value + cellSize.value / 2
+    player.drawY = offsetY.value + cellSize.value / 2
 
     // 起始区域预亮
-    for (let i = 0; i < grid.length; i++) {
-      if (grid[i].c <= 1 && grid[i].r <= 1) {
-        grid[i].revealTimer = 3.0
+    const g = grid.value
+    for (let i = 0; i < g.length; i++) {
+      if (g[i].c <= 1 && g[i].r <= 1) {
+        g[i].revealTimer = 3.0
       }
     }
   }
@@ -89,20 +140,20 @@ export function useGame() {
     const MIN_PEAK_THRESHOLD = 140
     const normalized = Math.max(0, Math.min(1, (peakVolume - MIN_PEAK_THRESHOLD) / (255 - MIN_PEAK_THRESHOLD)))
     const intensity = Math.pow(normalized, 2)
-    const maxRadius = (cellSize * 1.5) + (maxScreenDist * 0.9 * intensity)
+    const maxRadius = (cellSize.value * 1.5) + (maxScreenDist * 0.9 * intensity)
 
-    pings.push({
+    pings.value.push({
       x: player.drawX,
       y: player.drawY,
       currentR: 5,
       maxR: maxRadius,
-      speed: 4 + (intensity * 4)
+      speed: 1.5 + (intensity * 2.5)
     })
   }
 
   function movePlayer(dir) {
     if (!isPlaying.value) return
-    let currentCell = grid[index(cols, rows, player.c, player.r)]
+    const currentCell = grid.value[index(cols.value, rows.value, player.c, player.r)]
     if (!currentCell) return
 
     if (dir === 'up' && !currentCell.walls.top) player.r--
@@ -149,22 +200,18 @@ export function useGame() {
   }
 
   return {
-    // state
     isPlaying,
     currentLevel,
     gamePhase,
     player,
     exitCell,
-    // grid
     grid,
     cols,
     rows,
     pings,
-    // transform
     cellSize,
     offsetX,
     offsetY,
-    // methods
     calcMazeTransform,
     loadLevel,
     finalizeLevelSetup,

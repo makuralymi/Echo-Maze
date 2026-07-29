@@ -66,6 +66,73 @@ export function useMaze() {
     }
   }
 
+  /**
+   * 验证从 (0,0) 到 (cols-1, rows-1) 是否可达（BFS）
+   * @returns {{ reachable: boolean, count: number }}
+   */
+  function verifyPaths(grid, cols, rows) {
+    const visited = new Set()
+    const queue = [0] // 起点 index
+    visited.add(0)
+
+    const targetIdx = index(cols, rows, cols - 1, rows - 1)
+    let reachableCount = 0
+
+    while (queue.length > 0) {
+      const ci = queue.shift()
+      reachableCount++
+      const cell = grid[ci]
+      const c = cell.c
+      const r = cell.r
+
+      if (ci === targetIdx) break
+
+      // 四个方向：检查无墙且未访问
+      const dirs = [
+        { cond: !cell.walls.top,    idx: index(cols, rows, c, r - 1) },
+        { cond: !cell.walls.right,  idx: index(cols, rows, c + 1, r) },
+        { cond: !cell.walls.bottom, idx: index(cols, rows, c, r + 1) },
+        { cond: !cell.walls.left,   idx: index(cols, rows, c - 1, r) },
+      ]
+      for (const d of dirs) {
+        if (d.cond && d.idx !== -1 && !visited.has(d.idx)) {
+          visited.add(d.idx)
+          queue.push(d.idx)
+        }
+      }
+    }
+
+    return {
+      reachable: visited.has(targetIdx),
+      count: visited.size
+    }
+  }
+
+  /**
+   * 随机打通一些墙壁，增加多路径，让迷宫不那么"完美"
+   * 比例约 totalCells * rate 次尝试
+   */
+  function addExtraPassages(grid, cols, rows, rate = 0.15) {
+    const total = Math.floor(cols * rows * rate)
+    for (let i = 0; i < total; i++) {
+      const c = Math.floor(Math.random() * (cols - 1))
+      const r = Math.floor(Math.random() * (rows - 1))
+      const cell = grid[index(cols, rows, c, r)]
+      const right = grid[index(cols, rows, c + 1, r)]
+      const bottom = grid[index(cols, rows, c, r + 1)]
+
+      // 随机打通右边或下边的墙（非强制，增强探索感）
+      if (Math.random() < 0.5 && right && cell.walls.right) {
+        cell.walls.right = false
+        right.walls.left = false
+      }
+      if (Math.random() < 0.5 && bottom && cell.walls.bottom) {
+        cell.walls.bottom = false
+        bottom.walls.top = false
+      }
+    }
+  }
+
   function updateCellCenters(grid, offsetX, offsetY, cellSize) {
     grid.forEach(cell => {
       cell.cx = offsetX + cell.c * cellSize + cellSize / 2
@@ -73,5 +140,5 @@ export function useMaze() {
     })
   }
 
-  return { Cell, createGrid, index, generateMaze, updateCellCenters }
+  return { Cell, createGrid, index, generateMaze, verifyPaths, addExtraPassages, updateCellCenters }
 }

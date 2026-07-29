@@ -103,13 +103,40 @@ function update(timestamp) {
   props.player.drawX = lerp(props.player.drawX, targetX, 0.3)
   props.player.drawY = lerp(props.player.drawY, targetY, 0.3)
 
-  // 更新 cell reveal 计时器
+  // 更新 cell reveal 计时器（反向累积模式：声波照射时推高，无波时缓慢衰减）
   if (props.grid) {
-    props.grid.forEach(cell => {
-      if (cell.revealTimer > 0) {
-        cell.revealTimer -= dt
+    const g = props.grid
+    const pings = props.pings
+    for (let i = 0; i < g.length; i++) {
+      const cell = g[i]
+
+      // 检查是否有声波覆盖该格子
+      let hit = false
+      let maxExposure = 0
+      for (let pi = 0; pi < pings.length; pi++) {
+        const p = pings[pi]
+        const dx = cell.cx - p.x
+        const dy = cell.cy - p.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist <= p.currentR) {
+          hit = true
+          // 波圈内：根据离波前沿的距离计算曝光度（平滑淡入）
+          const exp = Math.min(1, (p.currentR - dist) / (props.cellSize * 0.6) + 0.2)
+          if (exp > maxExposure) maxExposure = exp
+        }
       }
-    })
+
+      if (hit) {
+        // 有声波照射：向上推到曝光值（快入）
+        const target = maxExposure * 1.0 // 峰值 1 秒
+        cell.revealTimer += (target - cell.revealTimer) * Math.min(1, 6.0 * dt)
+      } else {
+        // 没有声波：缓慢衰减（慢出，1-2秒消失）
+        cell.revealTimer -= 1.0 * dt // 约 1 秒从 max 跌到 0
+      }
+
+      if (cell.revealTimer < 0.001) cell.revealTimer = 0
+    }
   }
 
   // 渲染声波
@@ -137,32 +164,25 @@ function drawPings() {
     p.currentR += p.speed
 
     const baseAlpha = Math.max(0, 1 - (p.currentR / p.maxR))
-    const ringCount = 5
-    const ringGap = 8 + p.speed * 0.8
 
-    for (let j = 0; j < ringCount; j++) {
-      const r = p.currentR - j * ringGap
-      if (r > 0) {
-        const ringAlpha = baseAlpha * (1 - (j / ringCount))
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, r, 0, Math.PI * 2)
-        ctx.strokeStyle = `rgba(255, 255, 255, ${ringAlpha})`
-        ctx.lineWidth = 1
-        ctx.stroke()
-      }
-    }
+    // 双层渐变环：外层亮、内层暗，模拟能量向前沿集中
+    const outerR = p.currentR
+    const innerR = Math.max(0, p.currentR - 20)
 
-    // 碰撞检测：波阵面经过格子时点亮
-    const grid = props.grid
-    if (grid) {
-      grid.forEach(cell => {
-        const dx = cell.cx - p.x
-        const dy = cell.cy - p.y
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        if (dist <= p.currentR && dist > p.currentR - p.speed * 2) {
-          cell.revealTimer = 3.0
-        }
-      })
+    // 外层亮环
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, outerR, 0, Math.PI * 2)
+    ctx.strokeStyle = `rgba(255, 255, 255, ${baseAlpha})`
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    // 内层淡环
+    if (innerR > 5) {
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, innerR, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(255, 255, 255, ${baseAlpha * 0.35})`
+      ctx.lineWidth = 1.5
+      ctx.stroke()
     }
 
     if (p.currentR >= p.maxR) {
@@ -179,16 +199,18 @@ function drawGrid() {
   const offsetY = props.offsetY
   const exitCell = props.exitCell
 
+  ctx.lineWidth = 2
+  ctx.lineCap = 'round'
+
   grid.forEach(cell => {
     if (cell.revealTimer <= 0) return
 
-    const alpha = Math.min(1, cell.revealTimer / 3.0)
+    // revealTimer 直接驱动 alpha，峰值 2 秒对应 alpha 1.0，平滑衰减到 0
+    const alpha = Math.min(1, cell.revealTimer)
     const x = offsetX + cell.c * cellSize
     const y = offsetY + cell.r * cellSize
 
     ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`
-    ctx.lineWidth = 2
-    ctx.lineCap = 'round'
 
     ctx.beginPath()
     if (cell.walls.top) { ctx.moveTo(x, y); ctx.lineTo(x + cellSize, y) }

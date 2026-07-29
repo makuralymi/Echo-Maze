@@ -4,7 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>回声迷宫 - Echo Maze</title>
-    <script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
+    <!-- Toy SDK：仅在生产构建时注入，本地调试跳过 -->
+    <script>
+      if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        var s = document.createElement('script')
+        s.src = 'https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js'
+        document.head.appendChild(s)
+      }
+    </script>
 </head>
 <body>
     <div id="app"></div>
