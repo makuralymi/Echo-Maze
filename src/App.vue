@@ -5,10 +5,12 @@
       :level="currentLevel"
       :total="totalLevels"
       :is-mic-on="isMicOn"
+      :dog-active="dogActive"
       @restart="onRestart"
       @levels="onMenu"
       @home="onHome"
       @toggle-camera="onToggleCamera"
+      @help-dog="onHelpDog"
     />
 
     <GameCanvas
@@ -33,6 +35,12 @@
       :handle-level-complete="handleLevelComplete"
       :start-microphone="startMicrophone"
       :level-list="levelList"
+      :dog-active="dogActive"
+      :dog-path="dogPath"
+      :dog-world-path="dogWorldPath"
+      :dog-pos="dogPos"
+      :dog-anim-id="dogAnimId"
+      :update-dog="updateDog"
       @next-level="onNextLevel"
       @menu="onMenu"
       @restart="onRestart"
@@ -74,7 +82,15 @@ const {
   goToMenu,
   goToLevelMenu,
   finalizeLevelSetup,
-  handleLevelComplete
+  handleLevelComplete,
+  dogActive,
+  dogPath,
+  dogWorldPath,
+  dogPos,
+  dogAnimId,
+  activateDog,
+  deactivateDog,
+  updateDog,
 } = useGame()
 
 const errorMsg = ref('')
@@ -130,6 +146,10 @@ function onToggleCamera() {
   if (typeof window.__toggleCamera === 'function') {
     window.__toggleCamera()
   }
+}
+
+function onHelpDog() {
+  activateDog()
 }
 
 // 提供给 GameCanvas 中 StartScreen / LevelMenu 的回调

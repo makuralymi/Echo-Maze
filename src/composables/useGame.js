@@ -4,7 +4,7 @@ import { useMaze } from './useMaze.js'
 import { LEVELS, getLevelConfig } from '../config/levelConfig.js'
 
 export function useGame() {
-  const { Cell, createGrid, index, generateMaze, verifyPaths, addExtraPassages, updateCellCenters } = useMaze()
+  const { Cell, createGrid, index, generateMaze, verifyPaths, findPath, addExtraPassages, updateCellCenters } = useMaze()
 
   // 游戏状态
   const isPlaying = ref(false)
@@ -19,6 +19,13 @@ export function useGame() {
   const player = reactive({ c: 0, r: 0, drawX: 0, drawY: 0 })
   const exitCell = reactive({ c: 0, r: 0 })
   const pings = ref([])
+
+  // ===== 帮帮我布鲁斯：狗狗寻路 =====
+  const dogActive = ref(false)
+  const dogPath = ref([])         // 完整路径 [{c, r}, ...]
+  const dogWorldPath = ref([])    // 世界坐标路径 [{x, y}, ...]
+  const dogPos = reactive({ x: 0, y: 0, idx: 0 })  // 当前狗狗位置
+  const dogAnimId = ref(0)
 
   // 绘图参数
   const cellSize = ref(0)
@@ -193,11 +200,94 @@ export function useGame() {
 
   function handleLevelComplete() {
     isPlaying.value = false
+    dogActive.value = false
+    dogPath.value = []
+    dogWorldPath.value = []
     markLevelCleared(currentLevel.value)
     if (isLastLevel()) {
       gamePhase.value = 'victory'
     } else {
       gamePhase.value = 'transition'
+    }
+  }
+
+  // ===== 帮帮我布鲁斯 =====
+  function activateDog() {
+    if (!isPlaying.value) return
+
+    // 计算寻路路径
+    const path = findPath(
+      grid.value, cols.value, rows.value,
+      player.c, player.r,
+      exitCell.c, exitCell.r
+    )
+
+    if (path.length === 0) return
+
+    // 转换为世界坐标路径
+    const worldPath = path.map(p => ({
+      x: offsetX.value + p.c * cellSize.value + cellSize.value / 2,
+      y: offsetY.value + p.r * cellSize.value + cellSize.value / 2,
+    }))
+
+    dogPath.value = path
+    dogWorldPath.value = worldPath
+    dogPos.x = worldPath[0].x
+    dogPos.y = worldPath[0].y
+    dogPos.idx = 0
+    dogAnimId.value++
+    dogActive.value = true
+  }
+
+  function deactivateDog() {
+    dogActive.value = false
+    dogPath.value = []
+    dogWorldPath.value = []
+    dogPos.idx = 0
+  }
+
+  function updateDog(speed) {
+    if (!dogActive.value || dogWorldPath.value.length === 0) return
+
+    const path = dogWorldPath.value
+    let idx = dogPos.idx
+
+    // 向目标点移动
+    if (idx >= path.length) {
+      // 到达终点，重新开始
+      dogPos.idx = 0
+      dogPos.x = path[0].x
+      dogPos.y = path[0].y
+      return
+    }
+
+    const target = path[idx]
+    const dx = target.x - dogPos.x
+    const dy = target.y - dogPos.y
+    const dist = Math.sqrt(dx * dx + dy * dy)
+
+    if (dist < speed) {
+      // 到达当前节点，移到下一个
+      dogPos.x = target.x
+      dogPos.y = target.y
+      dogPos.idx = idx + 1
+    } else {
+      // 向目标移动
+      dogPos.x += (dx / dist) * speed
+      dogPos.y += (dy / dist) * speed
+
+      // 更新当前节点索引
+      while (dogPos.idx < path.length) {
+        const nextTarget = path[dogPos.idx]
+        const ndx = nextTarget.x - dogPos.x
+        const ndy = nextTarget.y - dogPos.y
+        const nd = Math.sqrt(ndx * ndx + ndy * ndy)
+        if (nd < cellSize.value * 0.8) {
+          dogPos.idx++
+        } else {
+          break
+        }
+      }
     }
   }
 
@@ -228,6 +318,15 @@ export function useGame() {
     restart,
     goToMenu,
     goToLevelMenu,
-    handleLevelComplete
+    handleLevelComplete,
+    // 狗狗
+    dogActive,
+    dogPath,
+    dogWorldPath,
+    dogPos,
+    dogAnimId,
+    activateDog,
+    deactivateDog,
+    updateDog,
   }
 }
