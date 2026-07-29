@@ -1,6 +1,7 @@
 <template>
   <div class="app">
     <TopBar
+      :game-phase="gamePhase"
       :level="currentLevel"
       :total="totalLevels"
       :is-mic-on="isMicOn"
@@ -71,6 +72,7 @@ const {
   nextLevel,
   restart,
   goToMenu,
+  goToLevelMenu,
   finalizeLevelSetup,
   handleLevelComplete
 } = useGame()
@@ -96,6 +98,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopMicrophone()
   delete window.__startLevel
+  delete window.__onMicReady
 })
 
 async function persistProgress() {
@@ -121,9 +124,10 @@ function onRestart() {
   restart()
 }
 
-// "迷失" → 回到首页（menu），不保存当前进度
+// "迷失" → 回到标题页（start），放弃当前进度
 function onHome() {
-  goToMenu()
+  gamePhase.value = 'start'
+  isPlaying.value = false
 }
 
 function onToggleCamera() {
@@ -132,9 +136,14 @@ function onToggleCamera() {
   }
 }
 
-// 提供给 GameCanvas 中 LevelMenu 选择关卡的回调
+// 提供给 GameCanvas 中 StartScreen / LevelMenu 的回调
 window.__startLevel = (id) => {
   startLevel(id)
+}
+
+// StartScreen 麦克风就绪后进入关卡菜单
+window.__onMicReady = () => {
+  goToLevelMenu()
 }
 </script>
 

@@ -327,7 +327,7 @@ function onSelectLevel(id) {
 }
 
 function onMicReady() {
-  window.__startLevel?.(1)
+  window.__onMicReady?.()
 }
 
 // ===== 触摸 & 键盘 =====

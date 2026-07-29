@@ -5,7 +5,7 @@
       在无尽的黑暗中，<span class="highlight">滑动屏幕</span> 摸索前行。<br>
       你需要不断发出声音，利用声波照亮墙壁。<br>
       <span class="highlight">需要一定的音量才能触发声波，声音越大，看的越远。</span><br>
-      光影将在 3 秒后消散，不要停下呼喊。
+      光影将在 1 秒后消散，不要停下呼喊。
     </p>
     <button :disabled="loading" @click="handleClick">
       {{ loading ? '连接中...' : '允许麦克风并潜入' }}
@@ -31,7 +31,6 @@ function handleClick() {
   loading.value = true
   error.value = ''
 
-  // 必须在用户手势事件中同步调用 requestMicrophone
   props.startMicrophone()
     .then(() => {
       emit('started')

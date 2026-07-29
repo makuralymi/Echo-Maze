@@ -9,7 +9,7 @@ export function useGame() {
   // 游戏状态
   const isPlaying = ref(false)
   const currentLevel = ref(1)
-  const gamePhase = ref('menu') // 'menu' | 'playing' | 'transition' | 'victory'
+  const gamePhase = ref('start') // 'start' (title+mic) → 'menu' (level select) → 'playing' → 'transition' → 'victory'
 
   // 迷宫数据
   const grid = ref([])
@@ -186,6 +186,11 @@ export function useGame() {
     isPlaying.value = false
   }
 
+  // 麦克风就绪后从 start 跳转到菜单
+  function goToLevelMenu() {
+    gamePhase.value = 'menu'
+  }
+
   function handleLevelComplete() {
     isPlaying.value = false
     markLevelCleared(currentLevel.value)
@@ -222,6 +227,7 @@ export function useGame() {
     nextLevel,
     restart,
     goToMenu,
+    goToLevelMenu,
     handleLevelComplete
   }
 }
