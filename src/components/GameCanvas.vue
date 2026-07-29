@@ -196,7 +196,7 @@ function playDogLoop(audioFile) {
 
 function playEasterOnce() {
   stopEasterAudio()
-  easterAudio = new Audio('/dago.mp3')
+  easterAudio = new Audio('./dago.mp3')
   easterAudio.loop = false
   easterAudio.volume = 0.8
   easterAudio.play().catch(() => {})
@@ -243,9 +243,9 @@ watch(
   (val) => {
     if (val) {
       if (props.dogAudioMode === 'dage') {
-        playDogLoop('/dage.mp3')
+        playDogLoop('./dage.mp3')
       } else {
-        playDogLoop('/dog.mp3')
+        playDogLoop('./dog.mp3')
       }
     } else {
       stopDogAudio()
@@ -258,9 +258,9 @@ watch(
   () => props.dogAudioMode,
   (mode) => {
     if (props.dogActive && mode === 'dage') {
-      playDogLoop('/dage.mp3')
+      playDogLoop('./dage.mp3')
     } else if (props.dogActive && mode === 'dog') {
-      playDogLoop('/dog.mp3')
+      playDogLoop('./dog.mp3')
     }
   }
 )
