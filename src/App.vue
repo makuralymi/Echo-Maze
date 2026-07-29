@@ -4,6 +4,9 @@
       :level="currentLevel"
       :total="totalLevels"
       :is-mic-on="isMicOn"
+      @restart="onRestart"
+      @levels="onMenu"
+      @home="onHome"
     />
 
     <GameCanvas
@@ -115,6 +118,11 @@ function onMenu() {
 
 function onRestart() {
   restart()
+}
+
+// "迷失" → 回到首页（menu），不保存当前进度
+function onHome() {
+  goToMenu()
 }
 
 // 提供给 GameCanvas 中 LevelMenu 选择关卡的回调
