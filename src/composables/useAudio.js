@@ -29,9 +29,16 @@ export function useAudio() {
       await audioContext.resume()
     }
 
-    // 自动检测：Toy 平台走 SDK，否则走浏览器原生 API
+    // 自动检测：Toy 平台走 SDK，失败回退到浏览器原生 API
     if (toySDK.value) {
-      mediaStream = await window.toy.requestMicrophone()
+      try {
+        mediaStream = await window.toy.requestMicrophone()
+      } catch (e) {
+        // Toy SDK 加载了但不在 B站 App 内（如部署在 Cloudflare），回退浏览器 API
+        console.warn('Toy SDK 麦克风调用失败，回退浏览器原生 API:', e.message)
+        toySDK.value = false
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      }
     } else {
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
     }
