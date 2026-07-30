@@ -610,7 +610,11 @@ onMounted(() => {
 
   // 顶栏“探图模式”轮询的全局函数（3D 下轨道相机常开，toggle = 重新取景）
   window.__isCameraOn = () => true
-  window.__toggleCamera = () => { maze?.fitCamera() }
+  window.__toggleCamera = () => {
+    if (!maze) return
+    if (isCube.value) maze.fitCubeCamera()
+    else maze.fitCamera()
+  }
 
   window.addEventListener('resize', onResize)
   window.addEventListener('keydown', handleKeydown)
