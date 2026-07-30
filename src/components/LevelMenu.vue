@@ -3,38 +3,64 @@
     <h1>回声迷宫</h1>
     <p class="subtitle">选择关卡</p>
 
-    <!-- 关卡页容器 -->
-    <div
-      class="page-viewport"
-      ref="viewportRef"
-      @touchstart="onTouchStart"
-      @touchmove="onTouchMove"
-      @touchend="onTouchEnd"
-    >
-      <div class="page-track" :style="trackStyle">
-        <div
-          v-for="(page, pi) in pages"
-          :key="pi"
-          class="page-panel"
-        >
-          <button
-            v-for="lvl in page"
-            :key="lvl.id"
-            class="level-btn"
-            :class="{ locked: lvl.locked }"
-            :disabled="lvl.locked"
-            @click="emit('select', lvl.id)"
+    <!-- 关卡页容器：左右翻页箭头 + 滑动视口 -->
+    <div class="page-area">
+      <button
+        v-if="pages.length > 1"
+        class="page-arrow left"
+        :disabled="currentPage === 0"
+        aria-label="上一页"
+        @click="goToPage(currentPage - 1)"
+      >
+        <svg viewBox="0 0 24 24" class="arrow-icon" aria-hidden="true">
+          <polyline points="15 6 9 12 15 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+
+      <div
+        class="page-viewport"
+        ref="viewportRef"
+        @touchstart="onTouchStart"
+        @touchmove="onTouchMove"
+        @touchend="onTouchEnd"
+      >
+        <div class="page-track" :style="trackStyle">
+          <div
+            v-for="(page, pi) in pages"
+            :key="pi"
+            class="page-panel"
           >
-            <span class="level-id">{{ lvl.id }}</span>
-            <span class="level-info">
-              <span class="level-name">{{ lvl.name }}</span>
-              <span class="level-desc">{{ lvl.desc }}</span>
-            </span>
-            <span v-if="lvl.locked" class="lock-icon">🔒</span>
-            <span v-else-if="lvl.cleared" class="clear-icon">✓</span>
-          </button>
+            <button
+              v-for="lvl in page"
+              :key="lvl.id"
+              class="level-btn"
+              :class="{ locked: lvl.locked }"
+              :disabled="lvl.locked"
+              @click="emit('select', lvl.id)"
+            >
+              <span class="level-id">{{ lvl.id }}</span>
+              <span class="level-info">
+                <span class="level-name">{{ lvl.name }}</span>
+                <span class="level-desc">{{ lvl.desc }}</span>
+              </span>
+              <span v-if="lvl.locked" class="lock-icon">🔒</span>
+              <span v-else-if="lvl.cleared" class="clear-icon">✓</span>
+            </button>
+          </div>
         </div>
       </div>
+
+      <button
+        v-if="pages.length > 1"
+        class="page-arrow right"
+        :disabled="currentPage === pages.length - 1"
+        aria-label="下一页"
+        @click="goToPage(currentPage + 1)"
+      >
+        <svg viewBox="0 0 24 24" class="arrow-icon" aria-hidden="true">
+          <polyline points="9 6 15 12 9 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
 
     <!-- 页码指示器 -->
@@ -145,13 +171,71 @@ h1 {
   flex-shrink: 0;
 }
 
+/* 翻页区域：左箭头 + 滑动视口 + 右箭头 */
+.page-area {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 480px;
+  flex: 1;
+  min-height: 0;
+}
+
 /* 滑动视口 */
 .page-viewport {
-  width: 100%;
-  max-width: 360px;
   flex: 1;
+  min-width: 0;
+  height: 100%;
   overflow: hidden;
   touch-action: pan-y; /* 允许纵向滚动，横向由我们处理 */
+}
+
+/* 翻页箭头 */
+.page-arrow {
+  flex-shrink: 0;
+  width: clamp(38px, 10vw, 46px);
+  height: clamp(38px, 10vw, 46px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #3a3a3a;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.03);
+  color: #bbb;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+.arrow-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+.page-arrow:not(:disabled):hover {
+  border-color: #4CAF50;
+  color: #fff;
+  background: rgba(76, 175, 80, 0.12);
+  box-shadow: 0 0 12px rgba(76, 175, 80, 0.35);
+}
+.page-arrow:not(:disabled):active {
+  transform: scale(0.88);
+}
+.page-arrow:disabled {
+  opacity: 0.22;
+  cursor: not-allowed;
+}
+/* 还有下一页时，右箭头轻微摆动提示 */
+.page-arrow.right:not(:disabled) {
+  animation: arrow-nudge 2.2s ease-in-out infinite;
+}
+.page-arrow.right:not(:disabled):hover {
+  animation-play-state: paused;
+}
+@keyframes arrow-nudge {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(3px); }
 }
 .page-track {
   display: flex;
