@@ -312,12 +312,25 @@ export function createThreeMaze(mountEl) {
     if (dirty && mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   }
 
-  // 逐层透明度：聚焦层不透明，其余层真正透明（关闭深度写入，避免遮挡聚焦层）
-  function setLayerOpacity(mesh, op) {
+  // 单层显隐：聚焦/蓝图层不透明，其余层直接隐藏（避免斜视角下多层重叠糊成一团）
+  function setLayerVisible(mesh, vis) {
     if (!mesh) return
-    mesh.visible = op > 0.02
-    mesh.material.opacity = op
-    mesh.material.depthWrite = op >= 0.99
+    mesh.visible = vis
+    if (vis) { mesh.material.opacity = 1; mesh.material.depthWrite = true }
+  }
+
+  // 蓝图模式：把整层墙体设为恒定亮度（无需回声即可看全该层结构）
+  function setWallConstant(mesh, lastArr, v) {
+    if (!mesh) return
+    let dirty = false
+    for (let i = 0; i < lastArr.length; i++) {
+      if (Math.abs(v - lastArr[i]) > 0.01) {
+        lastArr[i] = v
+        mesh.setColorAt(i, tmpColor.copy(WHITE).multiplyScalar(v))
+        dirty = true
+      }
+    }
+    if (dirty && mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   }
 
   function syncPings(pings, offsetX, offsetY, cellSize) {
@@ -580,29 +593,47 @@ export function createThreeMaze(mountEl) {
   }
 
   function syncCubeFrame(st) {
-    const { grid, pings, player, dogActive, dogPos, dogPath3D, layerFactors } = st
+    const { grid, pings, player, dogActive, dogPos, dogPath3D, solo } = st
     const cpl = cols * rows
+    const P = player.l | 0                       // 玩家当前层
+    const soloNum = (typeof solo === 'number') ? solo : -1
+    const viewLayer = soloNum >= 0 ? soloNum : P // 当前展示墙体的层
 
-    // 每层墙体：reveal → 实例颜色（点亮）；layerFactors → 材质透明度（真透明，不遮挡聚焦层）
+    // 每层只可能处于三种状态：蓝图（恒定全显）/ 实时（回声点亮）/ 隐藏
+    // —— 任何时刻最多只画一层的墙，彻底解决多层叠加看不清的问题
     for (let l = 0; l < layers; l++) {
-      const op = layerFactors ? layerFactors[l] : 1
-      setLayerOpacity(cubeWallsH[l], op)
-      setLayerOpacity(cubeWallsV[l], op)
-      updateWallColors(cubeWallsH[l], cubeOwnersH[l], cubeLastH[l], grid)
-      updateWallColors(cubeWallsV[l], cubeOwnersV[l], cubeLastV[l], grid)
-      // 网格面调光
+      const isBlueprint = (l === soloNum)
+      const isLive = (soloNum < 0 && l === P)
+      const show = isBlueprint || isLive
+      setLayerVisible(cubeWallsH[l], show)
+      setLayerVisible(cubeWallsV[l], show)
+      if (show) {
+        if (isBlueprint) {
+          setWallConstant(cubeWallsH[l], cubeLastH[l], 0.7)
+          setWallConstant(cubeWallsV[l], cubeLastV[l], 0.7)
+        } else {
+          updateWallColors(cubeWallsH[l], cubeOwnersH[l], cubeLastH[l], grid)
+          updateWallColors(cubeWallsV[l], cubeOwnersV[l], cubeLastV[l], grid)
+        }
+      }
+      // 网格面：展示层亮、玩家层中、其余作极淡参照
+      let gop
+      if (l === viewLayer) gop = 0.5
+      else if (l === P) gop = 0.3
+      else gop = 0.06
       if (layerGrids[l]) {
-        layerGrids[l].material.opacity = 0.5 * op
-        layerGrids[l].visible = op > 0.02
+        layerGrids[l].material.opacity = gop
+        layerGrids[l].visible = gop > 0.02
       }
     }
 
-    // 终点（按其所在层的聚焦系数调光）
+    // 终点：仅在其所在层为展示层时显示
     if (cubeExitPillar) {
-      const reveal = Math.min(1, grid[cubeExitPillar._cellIdx].revealTimer)
-      const ef = layerFactors ? layerFactors[Math.floor(cubeExitPillar._cellIdx / cpl)] : 1
-      cubeExitFloor.material.opacity = 0.6 * reveal * ef
-      cubeExitPillar.material.opacity = 0.35 * reveal * ef
+      const el = Math.floor(cubeExitPillar._cellIdx / cpl)
+      const exitActive = (el === viewLayer)
+      const er = (soloNum >= 0) ? 0.7 : Math.min(1, grid[cubeExitPillar._cellIdx].revealTimer)
+      cubeExitFloor.material.opacity = exitActive ? 0.6 * er : 0
+      cubeExitPillar.material.opacity = exitActive ? 0.35 * er : 0
     }
 
     // 玩家（真三维）

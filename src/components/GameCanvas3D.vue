@@ -18,15 +18,15 @@
       <button class="pad-btn vert" @pointerdown.prevent="onVertDown('descend')" @pointerup="onVertUp" @pointerleave="onVertUp" @pointercancel="onVertUp" aria-label="降层">▼</button>
     </div>
 
-    <!-- 层聚焦选择（仅立方关卡且多层）：解决多层叠加无法读图 -->
+    <!-- 层聚焦选择（仅立方关卡且多层）：单层显示，彻底解决多层叠加无法读图 -->
     <div v-if="isPlaying && isCube && layerCount > 1" class="layer-picker" @pointerdown.stop>
       <span class="lp-label">层</span>
-      <button class="layer-btn" :class="{ active: layerMode === 'all' }" @click="setLayerMode('all')">全</button>
+      <button class="layer-btn" :class="{ active: layerMode === 'all' }" @click="setLayerMode('all')" aria-label="跟随当前层（实时回声）">本</button>
       <button
         v-for="l in layerCount"
         :key="l"
         class="layer-btn"
-        :class="{ active: layerMode === l - 1, current: playerLayer === l - 1 }"
+        :class="{ active: layerMode === l - 1 || (layerMode === 'all' && playerLayer === l - 1), current: playerLayer === l - 1 }"
         @click="setLayerMode(l - 1)"
       >{{ l }}</button>
     </div>
@@ -163,10 +163,10 @@ const layerMode = ref('all')
 const layerCount = ref(0)   // 当前关卡层数（供模板渲染按钮）
 const playerLayer = ref(0)  // 玩家所在层（供模板高亮）
 
-// 操作提示文案（立方关含升降层说明）
+// 操作提示文案（立方关含升降层 / 选层看图说明）
 const hintText = computed(() =>
   isCube.value
-    ? '拖拽转视角 · 方向盘/WASD 平移 · Q/E 升降层'
+    ? '拖拽转视角 · 方向盘/WASD 平移 · Q/E 升降层 · 左选层看全图'
     : '拖拽旋转视角 · 双指缩放 · 方向盘 / 方向键移动'
 )
 
@@ -406,7 +406,7 @@ function cubeUpdate(timestamp) {
     dogActive: dog3DActive.value,
     dogPos: dog3DPos,
     dogPath3D: dog3DPath,
-    layerFactors: computeLayerFactors(),
+    solo: layerMode.value,
   })
 
   // 到达顶层对角终点 → 通关
@@ -416,25 +416,6 @@ function cubeUpdate(timestamp) {
   }
 
   animationId = requestAnimationFrame(cubeUpdate)
-}
-
-// 每层聚焦系数：供渲染按层调光（解决多层叠加无法读图的问题）
-function computeLayerFactors() {
-  const factors = new Float32Array(cubeLayers)
-  const pl = cubePlayer.l
-  for (let l = 0; l < cubeLayers; l++) {
-    if (layerMode.value === 'all') {
-      // 智能调光：玩家所在层最亮，随层距衰减
-      const d = Math.abs(l - pl)
-      factors[l] = d === 0 ? 1.0 : d === 1 ? 0.42 : 0.2
-    } else {
-      // 单看指定层：该层全亮，玩家所在层半亮便于定位，其余作幽灵参考
-      if (l === layerMode.value) factors[l] = 1.0
-      else if (l === pl) factors[l] = 0.5
-      else factors[l] = 0.06
-    }
-  }
-  return factors
 }
 
 function setLayerMode(m) {
