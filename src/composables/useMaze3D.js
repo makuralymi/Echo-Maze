@@ -22,8 +22,9 @@ export function useMaze3D() {
     }
   }
 
-  function index(cols, rows, c, r, l) {
-    if (c < 0 || r < 0 || l < 0) return -1
+  // 越界（任一维 < 0 或 ≥ 上限）返回 -1
+  function index(cols, rows, layers, c, r, l) {
+    if (c < 0 || r < 0 || l < 0 || c >= cols || r >= rows || l >= layers) return -1
     return c + r * cols + l * cols * rows
   }
 
@@ -60,7 +61,7 @@ export function useMaze3D() {
       const { c, r, l } = current
       const options = []
       for (const d of DIRS) {
-        const ni = index(cols, rows, c + d.dc, r + d.dr, l + d.dl)
+        const ni = index(cols, rows, layers, c + d.dc, r + d.dr, l + d.dl)
         if (ni !== -1 && !grid[ni].visited) options.push({ cell: grid[ni], dir: d })
       }
       if (options.length > 0) {
@@ -81,14 +82,16 @@ export function useMaze3D() {
     const visited = new Set()
     const queue = [0]
     visited.add(0)
-    const target = index(cols, rows, cols - 1, rows - 1, layers - 1)
+    const target = index(cols, rows, layers, cols - 1, rows - 1, layers - 1)
     while (queue.length > 0) {
       const ci = queue.shift()
       if (ci === target) break
       const cell = grid[ci]
       for (const d of DIRS) {
-        if (cell.walls[d.name]) continue
-        const ni = index(cols, rows, cell.c + d.dc, cell.r + d.dr, cell.l + d.dl)
+        // 垂直（升降层）自由通行，仅水平方向受墙阻挡
+        const vertical = d.name === 'u' || d.name === 'd'
+        if (!vertical && cell.walls[d.name]) continue
+        const ni = index(cols, rows, layers, cell.c + d.dc, cell.r + d.dr, cell.l + d.dl)
         if (ni !== -1 && !visited.has(ni)) {
           visited.add(ni)
           queue.push(ni)
@@ -107,8 +110,8 @@ export function useMaze3D() {
       const r = Math.floor(Math.random() * rows)
       const l = Math.floor(Math.random() * layers)
       const d = fwd[Math.floor(Math.random() * fwd.length)]
-      const cell = grid[index(cols, rows, c, r, l)]
-      const ni = index(cols, rows, c + d.dc, r + d.dr, l + d.dl)
+      const cell = grid[index(cols, rows, layers, c, r, l)]
+      const ni = index(cols, rows, layers, c + d.dc, r + d.dr, l + d.dl)
       if (ni !== -1 && cell.walls[d.name]) {
         cell.walls[d.name] = false
         grid[ni].walls[d.opp] = false
@@ -130,8 +133,8 @@ export function useMaze3D() {
       if (r > 0) opts.push({ dc: 0, dr: -1, dl: 0, name: 'n', opp: 's' })
       if (l > 0) opts.push({ dc: 0, dr: 0, dl: -1, name: 'd', opp: 'u' })
       const p = opts[Math.floor(Math.random() * opts.length)]
-      const cur = grid[index(cols, rows, c, r, l)]
-      const nxt = grid[index(cols, rows, c + p.dc, r + p.dr, l + p.dl)]
+      const cur = grid[index(cols, rows, layers, c, r, l)]
+      const nxt = grid[index(cols, rows, layers, c + p.dc, r + p.dr, l + p.dl)]
       cur.walls[p.name] = false
       nxt.walls[p.opp] = false
       c += p.dc; r += p.dr; l += p.dl
@@ -140,8 +143,8 @@ export function useMaze3D() {
 
   // 三维 BFS 寻路
   function findPath3D(grid, cols, rows, layers, sc, sr, sl, ec, er, el) {
-    const start = index(cols, rows, sc, sr, sl)
-    const end = index(cols, rows, ec, er, el)
+    const start = index(cols, rows, layers, sc, sr, sl)
+    const end = index(cols, rows, layers, ec, er, el)
     const visited = new Set([start])
     const parent = new Map()
     const queue = [start]
@@ -150,8 +153,10 @@ export function useMaze3D() {
       if (ci === end) break
       const cell = grid[ci]
       for (const d of DIRS) {
-        if (cell.walls[d.name]) continue
-        const ni = index(cols, rows, cell.c + d.dc, cell.r + d.dr, cell.l + d.dl)
+        // 垂直（升降层）自由通行，仅水平方向受墙阻挡
+        const vertical = d.name === 'u' || d.name === 'd'
+        if (!vertical && cell.walls[d.name]) continue
+        const ni = index(cols, rows, layers, cell.c + d.dc, cell.r + d.dr, cell.l + d.dl)
         if (ni !== -1 && !visited.has(ni)) {
           visited.add(ni)
           parent.set(ni, ci)

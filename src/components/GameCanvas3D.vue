@@ -18,6 +18,19 @@
       <button class="pad-btn vert" @pointerdown.prevent="onVertDown('descend')" @pointerup="onVertUp" @pointerleave="onVertUp" @pointercancel="onVertUp" aria-label="降层">▼</button>
     </div>
 
+    <!-- 层聚焦选择（仅立方关卡且多层）：解决多层叠加无法读图 -->
+    <div v-if="isPlaying && isCube && layerCount > 1" class="layer-picker" @pointerdown.stop>
+      <span class="lp-label">层</span>
+      <button class="layer-btn" :class="{ active: layerMode === 'all' }" @click="setLayerMode('all')">全</button>
+      <button
+        v-for="l in layerCount"
+        :key="l"
+        class="layer-btn"
+        :class="{ active: layerMode === l - 1, current: playerLayer === l - 1 }"
+        @click="setLayerMode(l - 1)"
+      >{{ l }}</button>
+    </div>
+
     <!-- 3D 操作提示（非阻塞，自动消失） -->
     <transition name="fade">
       <div v-if="showHint" class="hint-toast">{{ hintText }}</div>
@@ -113,6 +126,8 @@ const emit = defineEmits(['nextLevel', 'menu', 'restart', 'easterEggDone'])
 
 const mountRef = ref(null)
 const showHint = ref(false)
+// 探图模式开关：开启后 3D 环绕/缩放以玩家为中心
+const followOn = ref(false)
 
 const MIN_PEAK_THRESHOLD = 140
 const MIN_AVG_THRESHOLD = 15
@@ -142,6 +157,11 @@ let cubePings = []
 let dog3DPath = []
 const dog3DPos = { x: 0, y: 0, z: 0, idx: 0 }
 const dog3DActive = ref(false)
+
+// 层聚焦：'all' = 按玩家所在层智能调光；数字 = 单独点亮指定层
+const layerMode = ref('all')
+const layerCount = ref(0)   // 当前关卡层数（供模板渲染按钮）
+const playerLayer = ref(0)  // 玩家所在层（供模板高亮）
 
 // 操作提示文案（立方关含升降层说明）
 const hintText = computed(() =>
@@ -251,6 +271,7 @@ function startSession() {
     props.finalizeLevelSetup(SIM_W, SIM_H)
   }
   maze.buildMaze(props.grid, props.cols, props.rows)
+  maze.setFollowPlayer(followOn.value)
   lastFrameTime = 0
   lastPingTime = 0
   if (animationId) cancelAnimationFrame(animationId)
@@ -271,6 +292,8 @@ function loadCube() {
   cubeCols = config.c
   cubeRows = config.r
   cubeLayers = config.layers || 2
+  layerCount.value = cubeLayers
+  layerMode.value = 'all'
 
   let attempts = 0
   let result
@@ -300,6 +323,7 @@ function startCubeSession() {
   if (!maze) return
   loadCube()
   maze.buildCube(cubeGrid, cubeCols, cubeRows, cubeLayers)
+  maze.setFollowPlayer(followOn.value)
   lastFrameTime = 0
   lastPingTime = 0
   if (animationId) cancelAnimationFrame(animationId)
@@ -330,6 +354,7 @@ function cubeUpdate(timestamp) {
   cubePlayer.drawX = lerp(cubePlayer.drawX, cubePlayer.c + 0.5, 0.3)
   cubePlayer.drawY = lerp(cubePlayer.drawY, cubePlayer.l + 0.2, 0.3)
   cubePlayer.drawZ = lerp(cubePlayer.drawZ, cubePlayer.r + 0.5, 0.3)
+  playerLayer.value = cubePlayer.l
 
   // 麦克风 → 球形声波
   if (props.getAudioLevels) {
@@ -381,6 +406,7 @@ function cubeUpdate(timestamp) {
     dogActive: dog3DActive.value,
     dogPos: dog3DPos,
     dogPath3D: dog3DPath,
+    layerFactors: computeLayerFactors(),
   })
 
   // 到达顶层对角终点 → 通关
@@ -392,22 +418,47 @@ function cubeUpdate(timestamp) {
   animationId = requestAnimationFrame(cubeUpdate)
 }
 
-// 立方移动：水平四向（相机相对） + 垂直升降层
+// 每层聚焦系数：供渲染按层调光（解决多层叠加无法读图的问题）
+function computeLayerFactors() {
+  const factors = new Float32Array(cubeLayers)
+  const pl = cubePlayer.l
+  for (let l = 0; l < cubeLayers; l++) {
+    if (layerMode.value === 'all') {
+      // 智能调光：玩家所在层最亮，随层距衰减
+      const d = Math.abs(l - pl)
+      factors[l] = d === 0 ? 1.0 : d === 1 ? 0.42 : 0.2
+    } else {
+      // 单看指定层：该层全亮，玩家所在层半亮便于定位，其余作幽灵参考
+      if (l === layerMode.value) factors[l] = 1.0
+      else if (l === pl) factors[l] = 0.5
+      else factors[l] = 0.06
+    }
+  }
+  return factors
+}
+
+function setLayerMode(m) {
+  layerMode.value = m
+}
+
+// 立方移动：水平四向（相机相对，受墙阻挡） + 垂直升降层（任意位置可切换，仅受层范围限制）
 function moveCube(screenDir) {
   if (!props.isPlaying) return
+  if (screenDir === 'ascend') {
+    if (cubePlayer.l < cubeLayers - 1) cubePlayer.l++
+    return
+  }
+  if (screenDir === 'descend') {
+    if (cubePlayer.l > 0) cubePlayer.l--
+    return
+  }
   const cell = cubeGrid[cubePlayer.c + cubePlayer.r * cubeCols + cubePlayer.l * cubeCols * cubeRows]
   if (!cell) return
-  if (screenDir === 'ascend') {
-    if (!cell.walls.u) cubePlayer.l++
-  } else if (screenDir === 'descend') {
-    if (!cell.walls.d) cubePlayer.l--
-  } else {
-    const dir = maze ? maze.resolveDirection(screenDir) : screenDir
-    if (dir === 'up' && !cell.walls.n) cubePlayer.r--
-    else if (dir === 'down' && !cell.walls.s) cubePlayer.r++
-    else if (dir === 'left' && !cell.walls.w) cubePlayer.c--
-    else if (dir === 'right' && !cell.walls.e) cubePlayer.c++
-  }
+  const dir = maze ? maze.resolveDirection(screenDir) : screenDir
+  if (dir === 'up' && !cell.walls.n) cubePlayer.r--
+  else if (dir === 'down' && !cell.walls.s) cubePlayer.r++
+  else if (dir === 'left' && !cell.walls.w) cubePlayer.c--
+  else if (dir === 'right' && !cell.walls.e) cubePlayer.c++
 }
 
 // ===== 布鲁斯三维寻路 =====
@@ -608,12 +659,17 @@ watch(
 onMounted(() => {
   maze = createThreeMaze(mountRef.value)
 
-  // 顶栏“探图模式”轮询的全局函数（3D 下轨道相机常开，toggle = 重新取景）
-  window.__isCameraOn = () => true
+  // 顶栏“探图模式”轮询的全局函数：
+  // 开启后环绕/缩放中心跟随玩家（以玩家为中心），关闭则恢复迷宫全局取景
+  window.__isCameraOn = () => followOn.value
   window.__toggleCamera = () => {
     if (!maze) return
-    if (isCube.value) maze.fitCubeCamera()
-    else maze.fitCamera()
+    followOn.value = !followOn.value
+    maze.setFollowPlayer(followOn.value)
+    if (!followOn.value) {
+      if (isCube.value) maze.fitCubeCamera()
+      else maze.fitCamera()
+    }
   }
 
   window.addEventListener('resize', onResize)
@@ -736,6 +792,61 @@ onUnmounted(() => {
   font-size: 10px;
   letter-spacing: 3px;
   color: rgba(76, 175, 80, 0.8);
+}
+
+/* 层聚焦选择（立方关） */
+.layer-picker {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  z-index: 40;
+  pointer-events: auto;
+}
+.lp-label {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 2px;
+}
+.layer-btn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #bbb;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+  position: relative;
+}
+.layer-btn.active {
+  border-color: #4CAF50;
+  color: #fff;
+  background: rgba(76, 175, 80, 0.25);
+  box-shadow: 0 0 8px rgba(76, 175, 80, 0.4);
+}
+/* 玩家当前所在层：右上角小圆点 */
+.layer-btn.current::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4CAF50;
 }
 
 /* 操作提示 toast */

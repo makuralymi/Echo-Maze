@@ -42,6 +42,12 @@ export function createThreeMaze(mountEl) {
   controls.maxPolarAngle = Math.PI * 0.49 // 永远不低于地面
   controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE }
 
+  // “探图模式”：开启后环绕/缩放的中心跟随玩家（以玩家为中心）
+  let followPlayer = false
+  const _followTarget = new THREE.Vector3()
+
+  function setFollowPlayer(on) { followPlayer = on }
+
   // 发光贴图（玩家 / 狗狗 / 出口的假辉光）
   const glowTex = makeGlowTexture()
 
@@ -99,12 +105,17 @@ export function createThreeMaze(mountEl) {
   let isCube = false
 
   // —— 立方迷宫专用 ——
-  let cubePassages = null      // 层间竖向通道（InstancedMesh）
-  let passageOwners = []
-  let lastPassage = null
   const spherePingPool = []    // 三维球形声波
   let cubeExitPillar = null
   let cubeExitFloor = null
+  let layerGrids = []          // 每层的网格“维度面”，用于按层调光
+  // 每层独立的墙体网格（各层独立材质 → 可逐层调透明度，聚焦某层时其他层真正透明不遮挡）
+  let cubeWallsH = []
+  let cubeWallsV = []
+  let cubeOwnersH = []
+  let cubeOwnersV = []
+  let cubeLastH = []
+  let cubeLastV = []
 
   const tmpColor = new THREE.Color()
 
@@ -122,11 +133,14 @@ export function createThreeMaze(mountEl) {
       scene.remove(mazeGroup)
     }
     clearPingPool(spherePingPool)
-    cubePassages = null
-    passageOwners = []
-    lastPassage = null
     cubeExitPillar = null
     cubeExitFloor = null
+    cubeWallsH = []
+    cubeWallsV = []
+    cubeOwnersH = []
+    cubeOwnersV = []
+    cubeLastH = []
+    cubeLastV = []
     mazeGroup = new THREE.Group()
 
     // 地板（比迷宫略大，给环绕视角一个“地面”参照）
@@ -274,6 +288,8 @@ export function createThreeMaze(mountEl) {
     // —— 声波环 ——
     syncPings(pings, offsetX, offsetY, cellSize)
 
+    // 探图模式：环绕中心跟随玩家（以玩家为中心缩放）
+    if (followPlayer) controls.target.lerp(playerGroup.position, 0.08)
     controls.update()
     renderer.render(scene, camera)
   }
@@ -294,6 +310,14 @@ export function createThreeMaze(mountEl) {
       }
     }
     if (dirty && mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+  }
+
+  // 逐层透明度：聚焦层不透明，其余层真正透明（关闭深度写入，避免遮挡聚焦层）
+  function setLayerOpacity(mesh, op) {
+    if (!mesh) return
+    mesh.visible = op > 0.02
+    mesh.material.opacity = op
+    mesh.material.depthWrite = op >= 0.99
   }
 
   function syncPings(pings, offsetX, offsetY, cellSize) {
@@ -444,6 +468,13 @@ export function createThreeMaze(mountEl) {
     clearPingPool(pingPool) // 立方用球形声波，清掉平面环
     cubeExitPillar = null
     cubeExitFloor = null
+    layerGrids = []
+    cubeWallsH = []
+    cubeWallsV = []
+    cubeOwnersH = []
+    cubeOwnersV = []
+    cubeLastH = []
+    cubeLastV = []
     mazeGroup = new THREE.Group()
 
     // 底板
@@ -462,13 +493,14 @@ export function createThreeMaze(mountEl) {
       gh.position.set(cols / 2, l, rows / 2)
       gh.scale.set(cols / gmax, 1, rows / gmax)
       gh.material.transparent = true
-      gh.material.opacity = 0.45
+      gh.material.opacity = 0.5
       gh.material.toneMapped = false
+      gh.material.depthWrite = false
       mazeGroup.add(gh)
+      layerGrids.push(gh)
     }
 
     buildWallsCube(grid3D)
-    buildPassages(grid3D)
     buildCubeExit(grid3D)
 
     scene.add(mazeGroup)
@@ -476,9 +508,10 @@ export function createThreeMaze(mountEl) {
   }
 
   function buildWallsCube(grid3D) {
-    const hSegs = []
-    const vSegs = []
+    // 每层单独一对 InstancedMesh（独立材质 → 可逐层调透明度）
     for (let l = 0; l < layers; l++) {
+      const hSegs = []
+      const vSegs = []
       for (let r = 0; r <= rows; r++) {
         for (let c = 0; c < cols; c++) {
           let a = -1
@@ -497,51 +530,14 @@ export function createThreeMaze(mountEl) {
           if (a !== -1 || b !== -1) vSegs.push({ x: c, y: l, z: r + 0.5, a, b })
         }
       }
+      const H = makeWallInstances(hSegs, true)
+      const V = makeWallInstances(vSegs, false)
+      H.mesh.material.transparent = true
+      V.mesh.material.transparent = true
+      cubeWallsH.push(H.mesh); cubeOwnersH.push(H.owners); cubeLastH.push(new Float32Array(H.owners.length))
+      cubeWallsV.push(V.mesh); cubeOwnersV.push(V.owners); cubeLastV.push(new Float32Array(V.owners.length))
+      mazeGroup.add(H.mesh, V.mesh)
     }
-    const H = makeWallInstances(hSegs, true)
-    const V = makeWallInstances(vSegs, false)
-    wallsH = H.mesh; ownersH = H.owners; lastH = new Float32Array(ownersH.length)
-    wallsV = V.mesh; ownersV = V.owners; lastV = new Float32Array(ownersV.length)
-    mazeGroup.add(wallsH, wallsV)
-  }
-
-  // 层间可升降的竖向通道（发光细柱），亮度随相邻格 reveal
-  function buildPassages(grid3D) {
-    const segs = []
-    for (let l = 0; l < layers - 1; l++) {
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const cell = grid3D[idx3(c, r, l)]
-          if (!cell.walls.u) {
-            segs.push({ x: c + 0.5, y: l, z: r + 0.5, a: idx3(c, r, l), b: idx3(c, r, l + 1) })
-          }
-        }
-      }
-    }
-    const unitCyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 8)
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, toneMapped: false })
-    const dummy = new THREE.Object3D()
-    cubePassages = new THREE.InstancedMesh(unitCyl, mat, Math.max(1, segs.length))
-    cubePassages.frustumCulled = false
-    passageOwners = []
-    lastPassage = new Float32Array(segs.length)
-    for (let i = 0; i < segs.length; i++) {
-      const s = segs[i]
-      dummy.position.set(s.x, s.y + 0.5, s.z)
-      dummy.scale.set(0.1, 0.96, 0.1)
-      dummy.rotation.set(0, 0, 0)
-      dummy.updateMatrix()
-      cubePassages.setMatrixAt(i, dummy.matrix)
-      cubePassages.setColorAt(i, BLACK)
-      passageOwners.push({ a: s.a, b: s.b })
-    }
-    if (segs.length === 0) {
-      dummy.position.set(0, -999, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix()
-      cubePassages.setMatrixAt(0, dummy.matrix); cubePassages.setColorAt(0, BLACK)
-    }
-    cubePassages.instanceMatrix.needsUpdate = true
-    if (cubePassages.instanceColor) cubePassages.instanceColor.needsUpdate = true
-    mazeGroup.add(cubePassages)
   }
 
   function buildCubeExit(grid3D) {
@@ -584,18 +580,29 @@ export function createThreeMaze(mountEl) {
   }
 
   function syncCubeFrame(st) {
-    const { grid, pings, player, dogActive, dogPos, dogPath3D } = st
+    const { grid, pings, player, dogActive, dogPos, dogPath3D, layerFactors } = st
+    const cpl = cols * rows
 
-    // 墙体 & 通道亮度
-    updateWallColors(wallsH, ownersH, lastH, grid)
-    updateWallColors(wallsV, ownersV, lastV, grid)
-    updateWallColors(cubePassages, passageOwners, lastPassage, grid)
+    // 每层墙体：reveal → 实例颜色（点亮）；layerFactors → 材质透明度（真透明，不遮挡聚焦层）
+    for (let l = 0; l < layers; l++) {
+      const op = layerFactors ? layerFactors[l] : 1
+      setLayerOpacity(cubeWallsH[l], op)
+      setLayerOpacity(cubeWallsV[l], op)
+      updateWallColors(cubeWallsH[l], cubeOwnersH[l], cubeLastH[l], grid)
+      updateWallColors(cubeWallsV[l], cubeOwnersV[l], cubeLastV[l], grid)
+      // 网格面调光
+      if (layerGrids[l]) {
+        layerGrids[l].material.opacity = 0.5 * op
+        layerGrids[l].visible = op > 0.02
+      }
+    }
 
-    // 终点
+    // 终点（按其所在层的聚焦系数调光）
     if (cubeExitPillar) {
       const reveal = Math.min(1, grid[cubeExitPillar._cellIdx].revealTimer)
-      cubeExitFloor.material.opacity = 0.6 * reveal
-      cubeExitPillar.material.opacity = 0.35 * reveal
+      const ef = layerFactors ? layerFactors[Math.floor(cubeExitPillar._cellIdx / cpl)] : 1
+      cubeExitFloor.material.opacity = 0.6 * reveal * ef
+      cubeExitPillar.material.opacity = 0.35 * reveal * ef
     }
 
     // 玩家（真三维）
@@ -615,6 +622,10 @@ export function createThreeMaze(mountEl) {
     // 球形声波
     syncCubePings(pings)
 
+    // 探图模式：环绕中心跟随玩家（含纵向层级），缩放即以玩家为中心
+    if (followPlayer) {
+      controls.target.lerp(_followTarget.set(player.drawX, player.drawY, player.drawZ), 0.08)
+    }
     controls.update()
     renderer.render(scene, camera)
   }
@@ -757,6 +768,7 @@ export function createThreeMaze(mountEl) {
     fitCamera,
     fitCubeCamera,
     resolveDirection,
+    setFollowPlayer,
     resize,
     dispose,
     get renderer() { return renderer },
