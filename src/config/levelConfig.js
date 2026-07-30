@@ -19,6 +19,10 @@ export const LEVELS = [
   // ===== 第三幕：升维 =====
   // view: '3d' → 由 GameCanvas3D.vue 以三维声纳渲染（自由环绕视角）
   { id: 11, name: '破壁回响', c: 14, r: 14, extraRate: 0.12, desc: '14×14 · 立体声纳', view: '3d' },
+  { id: 12, name: '棱镜回廊', c: 16, r: 16, extraRate: 0.13, desc: '16×16 · 立体声纳', view: '3d' },
+  { id: 13, name: '折叠深渊', c: 18, r: 18, extraRate: 0.14, desc: '18×18 · 空间折叠', view: '3d' },
+  { id: 14, name: '悬浮迷阵', c: 20, r: 20, extraRate: 0.15, desc: '20×20 · 悬浮迷阵', view: '3d' },
+  { id: 15, name: '升维彼岸', c: 24, r: 24, extraRate: 0.16, desc: '24×24 · 升维终章', view: '3d' },
 ]
 
 export const TOTAL_LEVELS = LEVELS.length
