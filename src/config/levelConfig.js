@@ -23,6 +23,14 @@ export const LEVELS = [
   { id: 13, name: '折叠深渊', c: 18, r: 18, extraRate: 0.14, desc: '18×18 · 空间折叠', view: '3d' },
   { id: 14, name: '悬浮迷阵', c: 20, r: 20, extraRate: 0.15, desc: '20×20 · 悬浮迷阵', view: '3d' },
   { id: 15, name: '升维彼岸', c: 24, r: 24, extraRate: 0.16, desc: '24×24 · 升维终章', view: '3d' },
+
+  // ===== 第四幕：立方 =====
+  // view: '3d' + cube: true → 真三维立方迷宫：在多层之间升降穿行，层数随难度递增
+  { id: 16, name: '双层回环', c: 8,  r: 8,  layers: 2, extraRate: 0.10, desc: '8×8×2 · 立方声纳',  view: '3d', cube: true },
+  { id: 17, name: '三重维度', c: 8,  r: 8,  layers: 3, extraRate: 0.11, desc: '8×8×3 · 立方声纳',  view: '3d', cube: true },
+  { id: 18, name: '折叠立方', c: 9,  r: 9,  layers: 3, extraRate: 0.12, desc: '9×9×3 · 折叠立方',  view: '3d', cube: true },
+  { id: 19, name: '四维阶梯', c: 10, r: 10, layers: 4, extraRate: 0.13, desc: '10×10×4 · 四维阶梯', view: '3d', cube: true },
+  { id: 20, name: '超立方终章', c: 10, r: 10, layers: 5, extraRate: 0.14, desc: '10×10×5 · 超立方体', view: '3d', cube: true },
 ]
 
 export const TOTAL_LEVELS = LEVELS.length
@@ -34,4 +42,9 @@ export function getLevelConfig(levelIndex) {
 // 是否为三维渲染关卡（默认 2d）
 export function isLevel3D(levelIndex) {
   return (LEVELS[levelIndex]?.view ?? '2d') === '3d'
+}
+
+// 是否为真三维立方关卡（多层升降）
+export function isLevelCube(levelIndex) {
+  return LEVELS[levelIndex]?.cube === true
 }

@@ -17,6 +17,7 @@
       v-if="is3DLevel"
       :game-phase="gamePhase"
       :current-level="currentLevel"
+      :view-mode="viewMode"
       :is-playing="isPlaying"
       :is-mic-on="isMicOn"
       :player="player"
@@ -100,7 +101,7 @@ import GameCanvas from './components/GameCanvas.vue'
 import { useAudio } from './composables/useAudio.js'
 import { useGame } from './composables/useGame.js'
 import { useCloudStorage } from './composables/useCloudStorage.js'
-import { LEVELS, TOTAL_LEVELS, isLevel3D } from './config/levelConfig.js'
+import { LEVELS, TOTAL_LEVELS, isLevel3D, isLevelCube } from './config/levelConfig.js'
 
 // 三维渲染组件懒加载：three.js 单独分包，仅在进入第 11 关时加载，
 // 不影响 1–10 关（2D）的首屏体积。
@@ -153,6 +154,8 @@ const totalLevels = TOTAL_LEVELS
 
 // 当前关卡是否为三维渲染（第 11 关）
 const is3DLevel = computed(() => isLevel3D(currentLevel.value - 1))
+// 三维渲染模式：'cube'（多层立方，可升降层）或 'plane'（单层俯视）
+const viewMode = computed(() => (isLevelCube(currentLevel.value - 1) ? 'cube' : 'plane'))
 
 const levelList = computed(() => {
   return LEVELS.map(l => ({

@@ -11,11 +11,16 @@
       <button class="pad-btn down"  @pointerdown.prevent="onPadDown('down')"  @pointerup="onPadUp" @pointerleave="onPadUp" @pointercancel="onPadUp" aria-label="下">▼</button>
     </div>
 
+    <!-- 升降层控制（仅立方关卡） -->
+    <div v-if="isPlaying && isCube" class="vpad" @pointerdown.stop>
+      <button class="pad-btn vert" @pointerdown.prevent="onVertDown('ascend')" @pointerup="onVertUp" @pointerleave="onVertUp" @pointercancel="onVertUp" aria-label="升层">▲</button>
+      <span class="vpad-label">楼层</span>
+      <button class="pad-btn vert" @pointerdown.prevent="onVertDown('descend')" @pointerup="onVertUp" @pointerleave="onVertUp" @pointercancel="onVertUp" aria-label="降层">▼</button>
+    </div>
+
     <!-- 3D 操作提示（非阻塞，自动消失） -->
     <transition name="fade">
-      <div v-if="showHint" class="hint-toast">
-        拖拽旋转视角 · 双指缩放 · 方向盘 / 方向键移动
-      </div>
+      <div v-if="showHint" class="hint-toast">{{ hintText }}</div>
     </transition>
 
     <LevelMenu
@@ -59,18 +64,21 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import LevelMenu from './LevelMenu.vue'
 import StartScreen from './StartScreen.vue'
 import LevelTransition from './LevelTransition.vue'
 import VictoryScreen from './VictoryScreen.vue'
 import { createThreeMaze } from '../composables/useThreeMaze.js'
+import { useMaze3D } from '../composables/useMaze3D.js'
+import { getLevelConfig } from '../config/levelConfig.js'
 
 const props = defineProps({
   gamePhase: String,
   currentLevel: Number,
   isPlaying: Boolean,
   isMicOn: Boolean,
+  viewMode: String, // 'plane' | 'cube'
   player: Object,
   exitCell: Object,
   grid: Array,
@@ -119,6 +127,28 @@ let lastFrameTime = 0
 let lastPingTime = 0
 let hintTimeout = null
 let padRepeatTimer = null
+let vertRepeatTimer = null
+
+// ===== 立方（多层）关卡状态 =====
+const isCube = computed(() => props.viewMode === 'cube')
+const maze3D = useMaze3D()
+let cubeGrid = []
+let cubeCols = 0
+let cubeRows = 0
+let cubeLayers = 0
+const cubePlayer = { c: 0, r: 0, l: 0, drawX: 0.5, drawY: 0.2, drawZ: 0.5 }
+const cubeExit = { c: 0, r: 0, l: 0 }
+let cubePings = []
+let dog3DPath = []
+const dog3DPos = { x: 0, y: 0, z: 0, idx: 0 }
+const dog3DActive = ref(false)
+
+// 操作提示文案（立方关含升降层说明）
+const hintText = computed(() =>
+  isCube.value
+    ? '拖拽转视角 · 方向盘/WASD 平移 · Q/E 升降层'
+    : '拖拽旋转视角 · 双指缩放 · 方向盘 / 方向键移动'
+)
 
 function lerp(start, end, amt) {
   return (1 - amt) * start + amt * end
@@ -225,11 +255,204 @@ function startSession() {
   lastPingTime = 0
   if (animationId) cancelAnimationFrame(animationId)
   animationId = requestAnimationFrame(update)
+  flashHint()
+}
 
-  // 首次进入的 3D 操作提示
+function flashHint() {
   showHint.value = true
   if (hintTimeout) clearTimeout(hintTimeout)
   hintTimeout = setTimeout(() => { showHint.value = false }, 4000)
+}
+
+// ===== 立方关卡：生成 / 主循环 / 回声 / 移动 / 布鲁斯 =====
+
+function loadCube() {
+  const config = getLevelConfig(props.currentLevel - 1)
+  cubeCols = config.c
+  cubeRows = config.r
+  cubeLayers = config.layers || 2
+
+  let attempts = 0
+  let result
+  do {
+    cubeGrid = maze3D.createGrid3D(cubeCols, cubeRows, cubeLayers)
+    maze3D.generateMaze3D(cubeGrid, cubeCols, cubeRows, cubeLayers)
+    result = maze3D.verify3D(cubeGrid, cubeCols, cubeRows, cubeLayers)
+    attempts++
+  } while (!result.reachable && attempts < 50)
+  if (!result.reachable) maze3D.forceConnect3D(cubeGrid, cubeCols, cubeRows, cubeLayers)
+  maze3D.addExtraPassages3D(cubeGrid, cubeCols, cubeRows, cubeLayers, config.extraRate)
+
+  cubePlayer.c = 0; cubePlayer.r = 0; cubePlayer.l = 0
+  cubePlayer.drawX = 0.5; cubePlayer.drawY = 0.2; cubePlayer.drawZ = 0.5
+  cubeExit.c = cubeCols - 1; cubeExit.r = cubeRows - 1; cubeExit.l = cubeLayers - 1
+  cubePings = []
+  dog3DActive.value = false
+  dog3DPath = []
+
+  // 预点亮起点区域（底层 2×2）
+  for (const cell of cubeGrid) {
+    if (cell.l === 0 && cell.c <= 1 && cell.r <= 1) cell.revealTimer = 1.0
+  }
+}
+
+function startCubeSession() {
+  if (!maze) return
+  loadCube()
+  maze.buildCube(cubeGrid, cubeCols, cubeRows, cubeLayers)
+  lastFrameTime = 0
+  lastPingTime = 0
+  if (animationId) cancelAnimationFrame(animationId)
+  animationId = requestAnimationFrame(cubeUpdate)
+  flashHint()
+}
+
+function cubeTriggerPing(peak) {
+  const normalized = Math.max(0, Math.min(1, (peak - MIN_PEAK_THRESHOLD) / (255 - MIN_PEAK_THRESHOLD)))
+  const intensity = Math.pow(normalized, 2)
+  const diag = Math.hypot(cubeCols, cubeRows, cubeLayers)
+  const maxR = 1.5 + diag * 0.85 * intensity
+  cubePings.push({
+    x: cubePlayer.drawX, y: cubePlayer.drawY, z: cubePlayer.drawZ,
+    currentR: 0.2, maxR, speed: 0.06 + intensity * 0.14,
+  })
+}
+
+function cubeUpdate(timestamp) {
+  if (!props.isPlaying) return
+  if (!maze) return
+
+  if (!lastFrameTime) lastFrameTime = timestamp
+  const dt = (timestamp - lastFrameTime) / 1000
+  lastFrameTime = timestamp
+
+  // 玩家平滑（真三维）
+  cubePlayer.drawX = lerp(cubePlayer.drawX, cubePlayer.c + 0.5, 0.3)
+  cubePlayer.drawY = lerp(cubePlayer.drawY, cubePlayer.l + 0.2, 0.3)
+  cubePlayer.drawZ = lerp(cubePlayer.drawZ, cubePlayer.r + 0.5, 0.3)
+
+  // 麦克风 → 球形声波
+  if (props.getAudioLevels) {
+    const { peak, average } = props.getAudioLevels()
+    const now = Date.now()
+    if (peak > MIN_PEAK_THRESHOLD && average > MIN_AVG_THRESHOLD && now - lastPingTime > 500) {
+      cubeTriggerPing(peak)
+      lastPingTime = now
+    }
+  }
+
+  // 布鲁斯（三维）
+  if (dog3DActive.value) updateDog3D(3.5 * dt)
+
+  // 三维回声点亮（欧氏距离，声波可跨层传播）
+  const g = cubeGrid
+  const pings = cubePings
+  for (let i = 0; i < g.length; i++) {
+    const cell = g[i]
+    let hit = false
+    let maxExp = 0
+    for (let pi = 0; pi < pings.length; pi++) {
+      const p = pings[pi]
+      const dx = cell.cx - p.x
+      const dy = cell.cy - p.y
+      const dz = cell.cz - p.z
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+      if (dist <= p.currentR) {
+        hit = true
+        const exp = Math.min(1, (p.currentR - dist) / 0.6 + 0.2)
+        if (exp > maxExp) maxExp = exp
+      }
+    }
+    if (hit) cell.revealTimer += (maxExp - cell.revealTimer) * Math.min(1, 6.0 * dt)
+    else cell.revealTimer -= 1.0 * dt
+    if (cell.revealTimer < 0.001) cell.revealTimer = 0
+  }
+
+  // 推进并回收声波
+  for (let i = pings.length - 1; i >= 0; i--) {
+    pings[i].currentR += pings[i].speed
+    if (pings[i].currentR >= pings[i].maxR) pings.splice(i, 1)
+  }
+
+  maze.syncCubeFrame({
+    grid: cubeGrid,
+    pings: cubePings,
+    player: cubePlayer,
+    dogActive: dog3DActive.value,
+    dogPos: dog3DPos,
+    dogPath3D: dog3DPath,
+  })
+
+  // 到达顶层对角终点 → 通关
+  if (cubePlayer.c === cubeExit.c && cubePlayer.r === cubeExit.r && cubePlayer.l === cubeExit.l) {
+    props.handleLevelComplete()
+    return
+  }
+
+  animationId = requestAnimationFrame(cubeUpdate)
+}
+
+// 立方移动：水平四向（相机相对） + 垂直升降层
+function moveCube(screenDir) {
+  if (!props.isPlaying) return
+  const cell = cubeGrid[cubePlayer.c + cubePlayer.r * cubeCols + cubePlayer.l * cubeCols * cubeRows]
+  if (!cell) return
+  if (screenDir === 'ascend') {
+    if (!cell.walls.u) cubePlayer.l++
+  } else if (screenDir === 'descend') {
+    if (!cell.walls.d) cubePlayer.l--
+  } else {
+    const dir = maze ? maze.resolveDirection(screenDir) : screenDir
+    if (dir === 'up' && !cell.walls.n) cubePlayer.r--
+    else if (dir === 'down' && !cell.walls.s) cubePlayer.r++
+    else if (dir === 'left' && !cell.walls.w) cubePlayer.c--
+    else if (dir === 'right' && !cell.walls.e) cubePlayer.c++
+  }
+}
+
+// ===== 布鲁斯三维寻路 =====
+function activateDog3D() {
+  const path = maze3D.findPath3D(
+    cubeGrid, cubeCols, cubeRows, cubeLayers,
+    cubePlayer.c, cubePlayer.r, cubePlayer.l,
+    cubeExit.c, cubeExit.r, cubeExit.l
+  )
+  if (!path.length) return
+  dog3DPath = path
+  dog3DPos.x = path[0].c + 0.5
+  dog3DPos.y = path[0].l + 0.2
+  dog3DPos.z = path[0].r + 0.5
+  dog3DPos.idx = 0
+  dog3DActive.value = true
+}
+
+function updateDog3D(speed) {
+  const path = dog3DPath
+  if (path.length === 0 || dog3DPos.idx >= path.length) return
+  const t = path[dog3DPos.idx]
+  const tx = t.c + 0.5
+  const ty = t.l + 0.2
+  const tz = t.r + 0.5
+  const dx = tx - dog3DPos.x
+  const dy = ty - dog3DPos.y
+  const dz = tz - dog3DPos.z
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+  if (dist < speed) {
+    dog3DPos.x = tx; dog3DPos.y = ty; dog3DPos.z = tz
+    dog3DPos.idx++
+    emitDogPing3D()
+  } else {
+    dog3DPos.x += (dx / dist) * speed
+    dog3DPos.y += (dy / dist) * speed
+    dog3DPos.z += (dz / dist) * speed
+  }
+}
+
+function emitDogPing3D() {
+  cubePings.push({
+    x: dog3DPos.x, y: dog3DPos.y, z: dog3DPos.z,
+    currentR: 0.2, maxR: 2.5, speed: 0.05,
+  })
 }
 
 // ===== 输入：键盘 + 方向盘 =====
@@ -240,21 +463,40 @@ function moveRelative(screenDir) {
   props.movePlayer(dir)
 }
 
+// 按当前关卡类型分发移动
+function dispatchMove(screenDir) {
+  if (isCube.value) moveCube(screenDir)
+  else moveRelative(screenDir)
+}
+
 function handleKeydown(e) {
-  if (e.key === 'ArrowUp' || e.key === 'w') moveRelative('up')
-  if (e.key === 'ArrowRight' || e.key === 'd') moveRelative('right')
-  if (e.key === 'ArrowDown' || e.key === 's') moveRelative('down')
-  if (e.key === 'ArrowLeft' || e.key === 'a') moveRelative('left')
+  const k = e.key
+  if (k === 'ArrowUp' || k === 'w') dispatchMove('up')
+  else if (k === 'ArrowRight' || k === 'd') dispatchMove('right')
+  else if (k === 'ArrowDown' || k === 's') dispatchMove('down')
+  else if (k === 'ArrowLeft' || k === 'a') dispatchMove('left')
+  else if (isCube.value && (k === 'e' || k === 'E' || k === 'PageUp')) moveCube('ascend')
+  else if (isCube.value && (k === 'q' || k === 'Q' || k === 'PageDown')) moveCube('descend')
 }
 
 function onPadDown(dir) {
-  moveRelative(dir)
+  dispatchMove(dir)
   onPadUp()
   // 长按连续移动：每次重复都重新按当前视角换算方向
-  padRepeatTimer = setInterval(() => moveRelative(dir), 180)
+  padRepeatTimer = setInterval(() => dispatchMove(dir), 180)
 }
 function onPadUp() {
   if (padRepeatTimer) { clearInterval(padRepeatTimer); padRepeatTimer = null }
+}
+
+// 升降层（仅立方关）
+function onVertDown(dir) {
+  moveCube(dir)
+  onVertUp()
+  vertRepeatTimer = setInterval(() => moveCube(dir), 220)
+}
+function onVertUp() {
+  if (vertRepeatTimer) { clearInterval(vertRepeatTimer); vertRepeatTimer = null }
 }
 
 // ===== 菜单 / 入口（与 2D 版一致，调用 App.vue 挂载的全局函数） =====
@@ -329,8 +571,11 @@ watch(
     if (val) {
       if (props.dogAudioMode === 'dage') playDogLoop('./dage.mp3')
       else playDogLoop('./dog.mp3')
+      if (isCube.value) activateDog3D()
     } else {
       stopDogAudio()
+      dog3DActive.value = false
+      dog3DPath = []
     }
   }
 )
@@ -353,7 +598,7 @@ watch(
   () => props.isPlaying,
   (val) => {
     if (val) {
-      nextTick(() => startSession())
+      nextTick(() => isCube.value ? startCubeSession() : startSession())
     } else {
       if (animationId) { cancelAnimationFrame(animationId); animationId = null }
     }
@@ -370,9 +615,9 @@ onMounted(() => {
   window.addEventListener('resize', onResize)
   window.addEventListener('keydown', handleKeydown)
 
-  // 与 2D 版一致：处理“挂载时已在游戏中”（菜单 → 第 11 关 / 第 10 关过渡 → 第 11 关）
+  // 与 2D 版一致：处理“挂载时已在游戏中”（菜单/过渡 → 三维关卡）
   if (props.isPlaying) {
-    nextTick(() => startSession())
+    nextTick(() => isCube.value ? startCubeSession() : startSession())
   }
 })
 
@@ -385,6 +630,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   window.removeEventListener('keydown', handleKeydown)
   onPadUp()
+  onVertUp()
   if (hintTimeout) clearTimeout(hintTimeout)
   stopDogAudio()
   stopEasterAudio()
@@ -398,6 +644,8 @@ onUnmounted(() => {
 
 <style scoped>
 #game-container-3d {
+  --pad: clamp(56px, 16vw, 72px);
+  --vpad: clamp(48px, 13vw, 60px);
   position: relative;
   width: 100%;
   max-width: 800px;
@@ -418,7 +666,6 @@ onUnmounted(() => {
 
 /* 方向盘（相机相对操控） */
 .dpad {
-  --pad: clamp(56px, 16vw, 72px);
   position: absolute;
   right: 16px;
   bottom: 18px;
@@ -456,6 +703,36 @@ onUnmounted(() => {
 .pad-btn.left  { top: var(--pad); left: 0; }
 .pad-btn.right { top: var(--pad); left: calc(var(--pad) * 2); }
 .pad-btn.down  { top: calc(var(--pad) * 2); left: var(--pad); }
+
+/* 升降层控制（立方关） */
+.vpad {
+  position: absolute;
+  left: 16px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  z-index: 40;
+  pointer-events: auto;
+}
+.vpad .pad-btn {
+  position: static;
+  width: var(--vpad);
+  height: var(--vpad);
+  border-color: rgba(76, 175, 80, 0.5);
+  color: #4CAF50;
+  font-size: clamp(16px, 5vw, 22px);
+}
+.vpad .pad-btn:active {
+  background: rgba(76, 175, 80, 0.3);
+  color: #fff;
+}
+.vpad-label {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: rgba(76, 175, 80, 0.8);
+}
 
 /* 操作提示 toast */
 .hint-toast {

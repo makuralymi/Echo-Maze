@@ -95,6 +95,16 @@ export function createThreeMaze(mountEl) {
 
   let cols = 0
   let rows = 0
+  let layers = 0
+  let isCube = false
+
+  // —— 立方迷宫专用 ——
+  let cubePassages = null      // 层间竖向通道（InstancedMesh）
+  let passageOwners = []
+  let lastPassage = null
+  const spherePingPool = []    // 三维球形声波
+  let cubeExitPillar = null
+  let cubeExitFloor = null
 
   const tmpColor = new THREE.Color()
 
@@ -103,12 +113,20 @@ export function createThreeMaze(mountEl) {
   function buildMaze(grid, c, r) {
     cols = c
     rows = r
+    layers = 1
+    isCube = false
 
     // 拆掉旧迷宫
     if (mazeGroup) {
       disposeObject(mazeGroup)
       scene.remove(mazeGroup)
     }
+    clearPingPool(spherePingPool)
+    cubePassages = null
+    passageOwners = []
+    lastPassage = null
+    cubeExitPillar = null
+    cubeExitFloor = null
     mazeGroup = new THREE.Group()
 
     // 地板（比迷宫略大，给环绕视角一个“地面”参照）
@@ -134,83 +152,61 @@ export function createThreeMaze(mountEl) {
     fitCamera()
   }
 
-  function buildWalls(grid) {
-    // 收集去重后的墙段：
-    //   水平墙 H：格子 (c,r) 的 top 边（z = r，跨 x: c..c+1），同时覆盖第 0 行上边界。
-    //   竖直墙 V：格子 (c,r) 的 left 边（x = c，跨 z: r..r+1），同时覆盖第 0 列左边界。
-    //   底边界 / 右边界：由最后一行 / 最后一列格子的 bottom / right 提供。
-    const hSegs = [] // { x, z, a, b }
-    const vSegs = []
+  // 由墙段列表生成 InstancedMesh（平面 / 立方共用）
+  // seg: { x, y, z, a, b }，y 为该墙所在层底高度（平面为 0）
+  function makeWallInstances(segs, horizontal) {
+    const unitBox = new THREE.BoxGeometry(1, 1, 1)
+    const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
+    const dummy = new THREE.Object3D()
+    const mesh = new THREE.InstancedMesh(unitBox, wallMat, Math.max(1, segs.length))
+    mesh.frustumCulled = false
+    const owners = []
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i]
+      dummy.position.set(s.x, s.y + WALL_H / 2, s.z)
+      if (horizontal) dummy.scale.set(1.0 + WALL_T, WALL_H, WALL_T)
+      else dummy.scale.set(WALL_T, WALL_H, 1.0 + WALL_T)
+      dummy.rotation.set(0, 0, 0)
+      dummy.updateMatrix()
+      mesh.setMatrixAt(i, dummy.matrix)
+      mesh.setColorAt(i, BLACK)
+      owners.push({ a: s.a, b: s.b })
+    }
+    if (segs.length === 0) {
+      dummy.position.set(0, -999, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix()
+      mesh.setMatrixAt(0, dummy.matrix); mesh.setColorAt(0, BLACK)
+    }
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    return { mesh, owners }
+  }
 
-    // 水平墙：遍历 z = 0..rows
+  function buildWalls(grid) {
+    // 平面（单层）墙段收集：y 恒为 0
+    const hSegs = []
+    const vSegs = []
     for (let r = 0; r <= rows; r++) {
       for (let c = 0; c < cols; c++) {
         let a = -1
         let b = -1
-        if (r < rows && grid[idx(c, r)].walls.top) a = idx(c, r)          // 下方格的 top
-        if (r > 0 && grid[idx(c, r - 1)].walls.bottom) b = idx(c, r - 1) // 上方格的 bottom
-        if (a === -1 && b === -1) continue
-        hSegs.push({ x: c + 0.5, z: r, a, b })
+        if (r < rows && grid[idx(c, r)].walls.top) a = idx(c, r)
+        if (r > 0 && grid[idx(c, r - 1)].walls.bottom) b = idx(c, r - 1)
+        if (a !== -1 || b !== -1) hSegs.push({ x: c + 0.5, y: 0, z: r, a, b })
       }
     }
-    // 竖直墙：遍历 x = 0..cols
     for (let c = 0; c <= cols; c++) {
       for (let r = 0; r < rows; r++) {
         let a = -1
         let b = -1
-        if (c < cols && grid[idx(c, r)].walls.left) a = idx(c, r)         // 右方格的 left
-        if (c > 0 && grid[idx(c - 1, r)].walls.right) b = idx(c - 1, r)   // 左方格的 right
-        if (a === -1 && b === -1) continue
-        vSegs.push({ x: c, z: r + 0.5, a, b })
+        if (c < cols && grid[idx(c, r)].walls.left) a = idx(c, r)
+        if (c > 0 && grid[idx(c - 1, r)].walls.right) b = idx(c - 1, r)
+        if (a !== -1 || b !== -1) vSegs.push({ x: c, y: 0, z: r + 0.5, a, b })
       }
     }
-
-    const unitBox = new THREE.BoxGeometry(1, 1, 1)
-    const wallMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
-    const dummy = new THREE.Object3D()
-
-    // H 墙
-    wallsH = new THREE.InstancedMesh(unitBox, wallMat, Math.max(1, hSegs.length))
-    wallsH.frustumCulled = false
-    ownersH = []
-    lastH = new Float32Array(hSegs.length)
-    for (let i = 0; i < hSegs.length; i++) {
-      const s = hSegs[i]
-      dummy.position.set(s.x, WALL_H / 2, s.z)
-      dummy.scale.set(1.0 + WALL_T, WALL_H, WALL_T)
-      dummy.rotation.set(0, 0, 0)
-      dummy.updateMatrix()
-      wallsH.setMatrixAt(i, dummy.matrix)
-      wallsH.setColorAt(i, BLACK)
-      ownersH.push({ a: s.a, b: s.b })
-    }
-    if (hSegs.length === 0) {
-      dummy.position.set(0, -999, 0); dummy.updateMatrix(); wallsH.setMatrixAt(0, dummy.matrix); wallsH.setColorAt(0, BLACK)
-    }
-    wallsH.instanceMatrix.needsUpdate = true
-    if (wallsH.instanceColor) wallsH.instanceColor.needsUpdate = true
-
-    // V 墙
-    wallsV = new THREE.InstancedMesh(unitBox, wallMat, Math.max(1, vSegs.length))
-    wallsV.frustumCulled = false
-    ownersV = []
-    lastV = new Float32Array(vSegs.length)
-    for (let i = 0; i < vSegs.length; i++) {
-      const s = vSegs[i]
-      dummy.position.set(s.x, WALL_H / 2, s.z)
-      dummy.scale.set(WALL_T, WALL_H, 1.0 + WALL_T)
-      dummy.rotation.set(0, 0, 0)
-      dummy.updateMatrix()
-      wallsV.setMatrixAt(i, dummy.matrix)
-      wallsV.setColorAt(i, BLACK)
-      ownersV.push({ a: s.a, b: s.b })
-    }
-    if (vSegs.length === 0) {
-      dummy.position.set(0, -999, 0); dummy.updateMatrix(); wallsV.setMatrixAt(0, dummy.matrix); wallsV.setColorAt(0, BLACK)
-    }
-    wallsV.instanceMatrix.needsUpdate = true
-    if (wallsV.instanceColor) wallsV.instanceColor.needsUpdate = true
-
+    const H = makeWallInstances(hSegs, true)
+    const V = makeWallInstances(vSegs, false)
+    wallsH = H.mesh; ownersH = H.owners; lastH = new Float32Array(ownersH.length)
+    wallsV = V.mesh; ownersV = V.owners; lastV = new Float32Array(ownersV.length)
     mazeGroup.add(wallsH, wallsV)
   }
 
@@ -431,6 +427,261 @@ export function createThreeMaze(mountEl) {
     controls.update()
   }
 
+  // ===== 立方（多层）迷宫 =====
+
+  function idx3(c, r, l) { return c + r * cols + l * cols * rows }
+
+  function buildCube(grid3D, c, r, lay) {
+    cols = c
+    rows = r
+    layers = lay
+    isCube = true
+
+    if (mazeGroup) {
+      disposeObject(mazeGroup)
+      scene.remove(mazeGroup)
+    }
+    clearPingPool(pingPool) // 立方用球形声波，清掉平面环
+    cubeExitPillar = null
+    cubeExitFloor = null
+    mazeGroup = new THREE.Group()
+
+    // 底板
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(cols + 10, rows + 10),
+      new THREE.MeshBasicMaterial({ color: 0x060608, toneMapped: false })
+    )
+    floor.rotation.x = -Math.PI / 2
+    floor.position.set(cols / 2, -0.02, rows / 2)
+    mazeGroup.add(floor)
+
+    // 每一层一张网格“维度面”，层数即难度
+    const gmax = Math.max(cols, rows)
+    for (let l = 0; l < layers; l++) {
+      const gh = new THREE.GridHelper(gmax, gmax, 0x1a2836, 0x0d141c)
+      gh.position.set(cols / 2, l, rows / 2)
+      gh.scale.set(cols / gmax, 1, rows / gmax)
+      gh.material.transparent = true
+      gh.material.opacity = 0.45
+      gh.material.toneMapped = false
+      mazeGroup.add(gh)
+    }
+
+    buildWallsCube(grid3D)
+    buildPassages(grid3D)
+    buildCubeExit(grid3D)
+
+    scene.add(mazeGroup)
+    fitCubeCamera()
+  }
+
+  function buildWallsCube(grid3D) {
+    const hSegs = []
+    const vSegs = []
+    for (let l = 0; l < layers; l++) {
+      for (let r = 0; r <= rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          let a = -1
+          let b = -1
+          if (r < rows && grid3D[idx3(c, r, l)].walls.n) a = idx3(c, r, l)
+          if (r > 0 && grid3D[idx3(c, r - 1, l)].walls.s) b = idx3(c, r - 1, l)
+          if (a !== -1 || b !== -1) hSegs.push({ x: c + 0.5, y: l, z: r, a, b })
+        }
+      }
+      for (let c = 0; c <= cols; c++) {
+        for (let r = 0; r < rows; r++) {
+          let a = -1
+          let b = -1
+          if (c < cols && grid3D[idx3(c, r, l)].walls.w) a = idx3(c, r, l)
+          if (c > 0 && grid3D[idx3(c - 1, r, l)].walls.e) b = idx3(c - 1, r, l)
+          if (a !== -1 || b !== -1) vSegs.push({ x: c, y: l, z: r + 0.5, a, b })
+        }
+      }
+    }
+    const H = makeWallInstances(hSegs, true)
+    const V = makeWallInstances(vSegs, false)
+    wallsH = H.mesh; ownersH = H.owners; lastH = new Float32Array(ownersH.length)
+    wallsV = V.mesh; ownersV = V.owners; lastV = new Float32Array(ownersV.length)
+    mazeGroup.add(wallsH, wallsV)
+  }
+
+  // 层间可升降的竖向通道（发光细柱），亮度随相邻格 reveal
+  function buildPassages(grid3D) {
+    const segs = []
+    for (let l = 0; l < layers - 1; l++) {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cell = grid3D[idx3(c, r, l)]
+          if (!cell.walls.u) {
+            segs.push({ x: c + 0.5, y: l, z: r + 0.5, a: idx3(c, r, l), b: idx3(c, r, l + 1) })
+          }
+        }
+      }
+    }
+    const unitCyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 8)
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, toneMapped: false })
+    const dummy = new THREE.Object3D()
+    cubePassages = new THREE.InstancedMesh(unitCyl, mat, Math.max(1, segs.length))
+    cubePassages.frustumCulled = false
+    passageOwners = []
+    lastPassage = new Float32Array(segs.length)
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i]
+      dummy.position.set(s.x, s.y + 0.5, s.z)
+      dummy.scale.set(0.1, 0.96, 0.1)
+      dummy.rotation.set(0, 0, 0)
+      dummy.updateMatrix()
+      cubePassages.setMatrixAt(i, dummy.matrix)
+      cubePassages.setColorAt(i, BLACK)
+      passageOwners.push({ a: s.a, b: s.b })
+    }
+    if (segs.length === 0) {
+      dummy.position.set(0, -999, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix()
+      cubePassages.setMatrixAt(0, dummy.matrix); cubePassages.setColorAt(0, BLACK)
+    }
+    cubePassages.instanceMatrix.needsUpdate = true
+    if (cubePassages.instanceColor) cubePassages.instanceColor.needsUpdate = true
+    mazeGroup.add(cubePassages)
+  }
+
+  function buildCubeExit(grid3D) {
+    const ec = cols - 1
+    const er = rows - 1
+    const el = layers - 1
+    cubeExitFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.9, 0.9),
+      new THREE.MeshBasicMaterial({ color: 0x4caf50, transparent: true, opacity: 0.0, toneMapped: false, depthWrite: false })
+    )
+    cubeExitFloor.rotation.x = -Math.PI / 2
+    cubeExitFloor.position.set(ec + 0.5, el + 0.01, er + 0.5)
+    cubeExitPillar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.22, 1.4, 0.22),
+      new THREE.MeshBasicMaterial({ color: 0x4caf50, transparent: true, opacity: 0.0, toneMapped: false, depthWrite: false })
+    )
+    cubeExitPillar.position.set(ec + 0.5, el + 0.7, er + 0.5)
+    const ci = idx3(ec, er, el)
+    cubeExitPillar._cellIdx = ci
+    cubeExitFloor._cellIdx = ci
+    mazeGroup.add(cubeExitFloor, cubeExitPillar)
+  }
+
+  function fitCubeCamera() {
+    const target = new THREE.Vector3(cols / 2, (layers - 1) / 2, rows / 2)
+    const R = Math.hypot(cols, rows, layers) / 2
+    const dist = (R / Math.sin(THREE.MathUtils.degToRad(55) / 2)) * 1.2
+    const polar = 0.95
+    const azim = 0.7
+    const sinP = Math.sin(polar)
+    camera.position.set(
+      target.x + dist * sinP * Math.sin(azim),
+      target.y + dist * Math.cos(polar),
+      target.z + dist * sinP * Math.cos(azim)
+    )
+    controls.target.copy(target)
+    controls.minDistance = Math.max(cols, rows, layers) * 0.4
+    controls.maxDistance = dist * 2.5
+    controls.update()
+  }
+
+  function syncCubeFrame(st) {
+    const { grid, pings, player, dogActive, dogPos, dogPath3D } = st
+
+    // 墙体 & 通道亮度
+    updateWallColors(wallsH, ownersH, lastH, grid)
+    updateWallColors(wallsV, ownersV, lastV, grid)
+    updateWallColors(cubePassages, passageOwners, lastPassage, grid)
+
+    // 终点
+    if (cubeExitPillar) {
+      const reveal = Math.min(1, grid[cubeExitPillar._cellIdx].revealTimer)
+      cubeExitFloor.material.opacity = 0.6 * reveal
+      cubeExitPillar.material.opacity = 0.35 * reveal
+    }
+
+    // 玩家（真三维）
+    playerGroup.position.set(player.drawX, player.drawY, player.drawZ)
+
+    // 狗狗（三维）
+    if (dogActive) {
+      dogGroup.visible = true
+      dogGroup.position.set(dogPos.x, dogPos.y, dogPos.z)
+      updateDogPath3D(dogPath3D, dogPos)
+    } else {
+      dogGroup.visible = false
+      pathDone.visible = false
+      pathTodo.visible = false
+    }
+
+    // 球形声波
+    syncCubePings(pings)
+
+    controls.update()
+    renderer.render(scene, camera)
+  }
+
+  function syncCubePings(pings) {
+    while (spherePingPool.length < pings.length) {
+      spherePingPool.push(makePingSphere())
+    }
+    for (let i = 0; i < spherePingPool.length; i++) {
+      const slot = spherePingPool[i]
+      if (i >= pings.length) { slot.mesh.visible = false; continue }
+      const p = pings[i]
+      const baseAlpha = Math.max(0, 1 - p.currentR / p.maxR)
+      slot.mesh.visible = p.currentR > 0.01
+      slot.mesh.position.set(p.x, p.y, p.z)
+      slot.mesh.scale.setScalar(Math.max(0.001, p.currentR))
+      slot.mat.opacity = baseAlpha * 0.5
+    }
+  }
+
+  function makePingSphere() {
+    const geo = new THREE.SphereGeometry(1, 20, 14)
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff, wireframe: true, transparent: true, opacity: 0,
+      depthWrite: false, toneMapped: false,
+    })
+    const mesh = new THREE.Mesh(geo, mat)
+    mesh.visible = false
+    scene.add(mesh)
+    return { mesh, mat }
+  }
+
+  function updateDogPath3D(path, dogPos) {
+    if (!path || path.length < 2) {
+      pathDone.visible = false
+      pathTodo.visible = false
+      return
+    }
+    const n = path.length
+    const upto = Math.min(dogPos.idx, n - 1)
+    const donePts = []
+    for (let i = 0; i <= upto; i++) {
+      const p = path[i]
+      donePts.push(p.c + 0.5, p.l + 0.2, p.r + 0.5)
+    }
+    donePts.push(dogPos.x, dogPos.y, dogPos.z)
+    setLinePositions(pathDoneGeo, donePts)
+    pathDone.visible = true
+
+    const todoPts = [dogPos.x, dogPos.y, dogPos.z]
+    for (let i = upto + 1; i < n; i++) {
+      const p = path[i]
+      todoPts.push(p.c + 0.5, p.l + 0.2, p.r + 0.5)
+    }
+    setLinePositions(pathTodoGeo, todoPts)
+    pathTodo.visible = todoPts.length >= 6
+  }
+
+  function clearPingPool(pool) {
+    for (const slot of pool) {
+      const obj = slot.group || slot.mesh
+      scene.remove(obj)
+      disposeObject(obj)
+    }
+    pool.length = 0
+  }
+
   function resize() {
     const cw = mountEl.clientWidth
     const ch = mountEl.clientHeight
@@ -441,8 +692,8 @@ export function createThreeMaze(mountEl) {
   }
 
   function dispose() {
-    for (const slot of pingPool) disposeObject(slot.group)
-    pingPool.length = 0
+    clearPingPool(pingPool)
+    clearPingPool(spherePingPool)
     if (mazeGroup) { disposeObject(mazeGroup); scene.remove(mazeGroup); mazeGroup = null }
     disposeObject(playerGroup)
     disposeObject(dogGroup)
@@ -500,8 +751,11 @@ export function createThreeMaze(mountEl) {
 
   return {
     buildMaze,
+    buildCube,
     syncFrame,
+    syncCubeFrame,
     fitCamera,
+    fitCubeCamera,
     resolveDirection,
     resize,
     dispose,
