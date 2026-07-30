@@ -13,7 +13,48 @@
       @help-dog="onHelpDog"
     />
 
+    <GameCanvas3D
+      v-if="is3DLevel"
+      :game-phase="gamePhase"
+      :current-level="currentLevel"
+      :is-playing="isPlaying"
+      :is-mic-on="isMicOn"
+      :player="player"
+      :exit-cell="exitCell"
+      :grid="grid"
+      :pings="pings"
+      :cell-size="cellSize"
+      :offset-x="offsetX"
+      :offset-y="offsetY"
+      :cols="cols"
+      :rows="rows"
+      :error-msg="errorMsg"
+      :get-audio-levels="getAudioLevels"
+      :move-player="movePlayer"
+      :check-win="checkWin"
+      :trigger-ping="triggerPing"
+      :finalize-level-setup="finalizeLevelSetup"
+      :calc-maze-transform="calcMazeTransform"
+      :handle-level-complete="handleLevelComplete"
+      :start-microphone="startMicrophone"
+      :level-list="levelList"
+      :dog-active="dogActive"
+      :dog-path="dogPath"
+      :dog-world-path="dogWorldPath"
+      :dog-pos="dogPos"
+      :dog-anim-id="dogAnimId"
+      :dog-easter-egg="dogEasterEgg"
+      :dog-finished="dogFinished"
+      :dog-audio-mode="dogAudioMode"
+      :update-dog="updateDog"
+      @easter-egg-done="easterEggDone"
+      @next-level="onNextLevel"
+      @menu="onMenu"
+      @restart="onRestart"
+    />
+
     <GameCanvas
+      v-else
       :game-phase="gamePhase"
       :current-level="currentLevel"
       :is-playing="isPlaying"
@@ -53,13 +94,17 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import TopBar from './components/TopBar.vue'
 import GameCanvas from './components/GameCanvas.vue'
 import { useAudio } from './composables/useAudio.js'
 import { useGame } from './composables/useGame.js'
 import { useCloudStorage } from './composables/useCloudStorage.js'
-import { LEVELS, TOTAL_LEVELS } from './config/levelConfig.js'
+import { LEVELS, TOTAL_LEVELS, isLevel3D } from './config/levelConfig.js'
+
+// 三维渲染组件懒加载：three.js 单独分包，仅在进入第 11 关时加载，
+// 不影响 1–10 关（2D）的首屏体积。
+const GameCanvas3D = defineAsyncComponent(() => import('./components/GameCanvas3D.vue'))
 
 const { isMicOn, startMicrophone, getAudioLevels, stopMicrophone } = useAudio()
 const { load: loadSave, save: saveProgress } = useCloudStorage()
@@ -72,6 +117,8 @@ const {
   player,
   exitCell,
   grid,
+  cols,
+  rows,
   pings,
   cellSize,
   offsetX,
@@ -103,6 +150,9 @@ const {
 
 const errorMsg = ref('')
 const totalLevels = TOTAL_LEVELS
+
+// 当前关卡是否为三维渲染（第 11 关）
+const is3DLevel = computed(() => isLevel3D(currentLevel.value - 1))
 
 const levelList = computed(() => {
   return LEVELS.map(l => ({

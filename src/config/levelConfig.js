@@ -15,10 +15,19 @@ export const LEVELS = [
   { id: 8,  name: '迷途之庭', c: 28, r: 28, extraRate: 0.15, desc: '28×28 · 岔路丛生' },
   { id: 9,  name: '虚无大殿', c: 32, r: 32, extraRate: 0.17, desc: '32×32 · 恢弘深渊' },
   { id: 10, name: '永夜尽头', c: 36, r: 36, extraRate: 0.18, desc: '36×36 · 最终觉醒' },
+
+  // ===== 第三幕：升维 =====
+  // view: '3d' → 由 GameCanvas3D.vue 以三维声纳渲染（自由环绕视角）
+  { id: 11, name: '破壁回响', c: 14, r: 14, extraRate: 0.12, desc: '14×14 · 立体声纳', view: '3d' },
 ]
 
 export const TOTAL_LEVELS = LEVELS.length
 
 export function getLevelConfig(levelIndex) {
   return LEVELS[levelIndex] || LEVELS[0]
+}
+
+// 是否为三维渲染关卡（默认 2d）
+export function isLevel3D(levelIndex) {
+  return (LEVELS[levelIndex]?.view ?? '2d') === '3d'
 }
