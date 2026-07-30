@@ -18,6 +18,9 @@ const WALL_H = 0.5    // 墙高（世界单位）
 const WALL_T = 0.08   // 墙厚
 const BLACK = new THREE.Color(0x000000)
 const WHITE = new THREE.Color(0xffffff)
+// 狗狗导航线逐段配色：水平=绿，升降层=琥珀
+const COL_HORZ = new THREE.Color(0x4caf50)
+const COL_VERT = new THREE.Color(0xffb347)
 
 export function createThreeMaze(mountEl) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' })
@@ -74,13 +77,13 @@ export function createThreeMaze(mountEl) {
   dogGroup.visible = false
   scene.add(dogGroup)
 
-  // 狗狗路径（走过的亮段 + 未走的淡段）
-  const pathDoneMat = new THREE.LineBasicMaterial({ color: 0x4caf50, transparent: true, opacity: 0.5, toneMapped: false })
-  const pathTodoMat = new THREE.LineBasicMaterial({ color: 0x4caf50, transparent: true, opacity: 0.15, toneMapped: false })
+  // 狗狗路径（走过的亮段 + 未走的淡段；逐段着色：水平=绿，升降层=琥珀）
+  const pathDoneMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6, toneMapped: false })
+  const pathTodoMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.2, toneMapped: false })
   const pathDoneGeo = new THREE.BufferGeometry()
   const pathTodoGeo = new THREE.BufferGeometry()
-  const pathDone = new THREE.Line(pathDoneGeo, pathDoneMat)
-  const pathTodo = new THREE.Line(pathTodoGeo, pathTodoMat)
+  const pathDone = new THREE.LineSegments(pathDoneGeo, pathDoneMat)
+  const pathTodo = new THREE.LineSegments(pathTodoGeo, pathTodoMat)
   pathDone.frustumCulled = false
   pathTodo.frustumCulled = false
   scene.add(pathDone, pathTodo)
@@ -108,6 +111,7 @@ export function createThreeMaze(mountEl) {
   const spherePingPool = []    // 三维球形声波
   let cubeExitPillar = null
   let cubeExitFloor = null
+  let cubeExitGlow = null      // 终点常亮辉光
   let layerGrids = []          // 每层的网格“维度面”，用于按层调光
   // 每层独立的墙体网格（各层独立材质 → 可逐层调透明度，聚焦某层时其他层真正透明不遮挡）
   let cubeWallsH = []
@@ -135,6 +139,7 @@ export function createThreeMaze(mountEl) {
     clearPingPool(spherePingPool)
     cubeExitPillar = null
     cubeExitFloor = null
+    cubeExitGlow = null
     cubeWallsH = []
     cubeWallsV = []
     cubeOwnersH = []
@@ -384,30 +389,39 @@ export function createThreeMaze(mountEl) {
       return
     }
     const n = worldPath.length
-    // 走过的：path[0..idx] + 当前狗狗位置
-    const donePts = []
     const upto = Math.min(dogPos.idx, n - 1)
+    const g = { cr: COL_HORZ.r, cg: COL_HORZ.g, cb: COL_HORZ.b }
+    // 平面：全绿
+    const doneNodes = []
     for (let i = 0; i <= upto; i++) {
       toWorld(worldPath[i].x, worldPath[i].y, offsetX, offsetY, cellSize, _v)
-      donePts.push(_v.x, 0.03, _v.z)
+      doneNodes.push({ x: _v.x, y: 0.03, z: _v.z, ...g })
     }
-    donePts.push((dogPos.x - offsetX) / cellSize, 0.03, (dogPos.y - offsetY) / cellSize)
-    setLinePositions(pathDoneGeo, donePts)
-    pathDone.visible = true
+    doneNodes.push({ x: (dogPos.x - offsetX) / cellSize, y: 0.03, z: (dogPos.y - offsetY) / cellSize, ...g })
+    setSegGeometry(pathDoneGeo, doneNodes)
+    pathDone.visible = doneNodes.length >= 2
 
-    // 未走的：狗狗位置 + path[idx+1..]
-    const todoPts = [(dogPos.x - offsetX) / cellSize, 0.03, (dogPos.y - offsetY) / cellSize]
+    const todoNodes = [{ x: (dogPos.x - offsetX) / cellSize, y: 0.03, z: (dogPos.y - offsetY) / cellSize, ...g }]
     for (let i = upto + 1; i < n; i++) {
       toWorld(worldPath[i].x, worldPath[i].y, offsetX, offsetY, cellSize, _v)
-      todoPts.push(_v.x, 0.03, _v.z)
+      todoNodes.push({ x: _v.x, y: 0.03, z: _v.z, ...g })
     }
-    setLinePositions(pathTodoGeo, todoPts)
-    pathTodo.visible = todoPts.length >= 6
+    setSegGeometry(pathTodoGeo, todoNodes)
+    pathTodo.visible = todoNodes.length >= 2
   }
 
-  function setLinePositions(geo, arr) {
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3))
-    geo.attributes.position.needsUpdate = true
+  // 把节点序列（含每点颜色）转成 LineSegments 的逐段 position/color（每段两端同色 → 纯色段）
+  function setSegGeometry(geo, nodes) {
+    const pos = []
+    const col = []
+    for (let i = 0; i < nodes.length - 1; i++) {
+      const a = nodes[i]
+      const b = nodes[i + 1]
+      pos.push(a.x, a.y, a.z, b.x, b.y, b.z)
+      col.push(a.cr, a.cg, a.cb, a.cr, a.cg, a.cb)
+    }
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3))
   }
 
   // 相机相对方向：把“屏幕方向意图”换算成当前视角下最贴合的网格移动方向。
@@ -484,6 +498,7 @@ export function createThreeMaze(mountEl) {
     clearPingPool(pingPool) // 立方用球形声波，清掉平面环
     cubeExitPillar = null
     cubeExitFloor = null
+    cubeExitGlow = null
     layerGrids = []
     cubeWallsH = []
     cubeWallsV = []
@@ -560,21 +575,24 @@ export function createThreeMaze(mountEl) {
     const ec = cols - 1
     const er = rows - 1
     const el = layers - 1
+    // 终点始终发光（不依赖回声 / 层聚焦），作为三维寻路的信标
     cubeExitFloor = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.9, 0.9),
-      new THREE.MeshBasicMaterial({ color: 0x4caf50, transparent: true, opacity: 0.0, toneMapped: false, depthWrite: false })
+      new THREE.PlaneGeometry(0.95, 0.95),
+      new THREE.MeshBasicMaterial({ color: 0x4caf50, transparent: true, opacity: 0.7, toneMapped: false, depthWrite: false })
     )
     cubeExitFloor.rotation.x = -Math.PI / 2
     cubeExitFloor.position.set(ec + 0.5, el + 0.01, er + 0.5)
     cubeExitPillar = new THREE.Mesh(
       new THREE.BoxGeometry(0.22, 1.4, 0.22),
-      new THREE.MeshBasicMaterial({ color: 0x4caf50, transparent: true, opacity: 0.0, toneMapped: false, depthWrite: false })
+      new THREE.MeshBasicMaterial({ color: 0x6fff8e, transparent: true, opacity: 0.85, toneMapped: false })
     )
     cubeExitPillar.position.set(ec + 0.5, el + 0.7, er + 0.5)
+    cubeExitGlow = makeGlowSprite(glowTex, 0x4caf50, 1.6)
+    cubeExitGlow.position.set(ec + 0.5, el + 0.5, er + 0.5)
     const ci = idx3(ec, er, el)
     cubeExitPillar._cellIdx = ci
     cubeExitFloor._cellIdx = ci
-    mazeGroup.add(cubeExitFloor, cubeExitPillar)
+    mazeGroup.add(cubeExitFloor, cubeExitPillar, cubeExitGlow)
   }
 
   function fitCubeCamera() {
@@ -597,7 +615,6 @@ export function createThreeMaze(mountEl) {
 
   function syncCubeFrame(st) {
     const { grid, pings, player, dogActive, dogPos, dogPath3D, solo } = st
-    const cpl = cols * rows
     const P = player.l | 0                       // 玩家当前层
     const soloNum = (typeof solo === 'number') ? solo : -1
     const isAll = (solo === 'all')               // 全层视野模式
@@ -643,22 +660,17 @@ export function createThreeMaze(mountEl) {
       }
     }
 
-    // 终点
+    // 终点：始终发光的信标（轻微脉动，不依赖回声 / 层聚焦）
     if (cubeExitPillar) {
-      const el = Math.floor(cubeExitPillar._cellIdx / cpl)
-      let ef
-      let er
-      if (isAll) {
-        const d = Math.abs(el - P)
-        ef = d === 0 ? 1.0 : d === 1 ? 0.3 : 0.15
-        er = Math.min(1, grid[cubeExitPillar._cellIdx].revealTimer)
-      } else {
-        const viewLayer = soloNum >= 0 ? soloNum : P
-        ef = (el === viewLayer) ? 1 : 0
-        er = (soloNum >= 0) ? 0.7 : Math.min(1, grid[cubeExitPillar._cellIdx].revealTimer)
+      const t = performance.now() * 0.005
+      const pulse = 0.78 + 0.22 * Math.sin(t)
+      cubeExitFloor.material.opacity = 0.7
+      cubeExitPillar.material.opacity = 0.85 * pulse
+      if (cubeExitGlow) {
+        cubeExitGlow.visible = true
+        cubeExitGlow.material.opacity = 0.55 * pulse
+        cubeExitGlow.scale.setScalar(1.4 + 0.35 * Math.sin(t))
       }
-      cubeExitFloor.material.opacity = 0.6 * er * ef
-      cubeExitPillar.material.opacity = 0.35 * er * ef
     }
 
     // 玩家（真三维）
@@ -722,22 +734,21 @@ export function createThreeMaze(mountEl) {
     }
     const n = path.length
     const upto = Math.min(dogPos.idx, n - 1)
-    const donePts = []
-    for (let i = 0; i <= upto; i++) {
-      const p = path[i]
-      donePts.push(p.c + 0.5, p.l + 0.2, p.r + 0.5)
-    }
-    donePts.push(dogPos.x, dogPos.y, dogPos.z)
-    setLinePositions(pathDoneGeo, donePts)
-    pathDone.visible = true
+    // 段颜色：跨层（升降）= 琥珀，水平 = 绿
+    const transAt = (i) => (i + 1 < n && path[i].l !== path[i + 1].l) ? COL_VERT : COL_HORZ
+    const node = (p, c) => ({ x: p.c + 0.5, y: p.l + 0.2, z: p.r + 0.5, cr: c.r, cg: c.g, cb: c.b })
+    const dnode = (x, y, z, c) => ({ x, y, z, cr: c.r, cg: c.g, cb: c.b })
 
-    const todoPts = [dogPos.x, dogPos.y, dogPos.z]
-    for (let i = upto + 1; i < n; i++) {
-      const p = path[i]
-      todoPts.push(p.c + 0.5, p.l + 0.2, p.r + 0.5)
-    }
-    setLinePositions(pathTodoGeo, todoPts)
-    pathTodo.visible = todoPts.length >= 6
+    const doneNodes = []
+    for (let i = 0; i <= upto; i++) doneNodes.push(node(path[i], transAt(i)))
+    doneNodes.push(dnode(dogPos.x, dogPos.y, dogPos.z, COL_HORZ))
+    setSegGeometry(pathDoneGeo, doneNodes)
+    pathDone.visible = doneNodes.length >= 2
+
+    const todoNodes = [dnode(dogPos.x, dogPos.y, dogPos.z, transAt(upto))]
+    for (let i = upto + 1; i < n; i++) todoNodes.push(node(path[i], transAt(i)))
+    setSegGeometry(pathTodoGeo, todoNodes)
+    pathTodo.visible = todoNodes.length >= 2
   }
 
   function clearPingPool(pool) {
