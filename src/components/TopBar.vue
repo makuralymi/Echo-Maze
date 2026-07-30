@@ -25,7 +25,6 @@
         </span>
       </div>
       <button
-        v-if="showMenuBtn"
         id="help-btn-bar"
         aria-label="操作指南"
         title="操作指南"
@@ -61,6 +60,30 @@
 
       <!-- 完整操作教程（预渲染实时演示） -->
       <Tutorial v-if="showTutorial" @close="showTutorial = false" />
+
+      <!-- 首次进入：是否查看教程 -->
+      <transition name="tutpop">
+        <div v-if="showFirstPrompt" class="fp-backdrop">
+          <div class="fp-ambient" aria-hidden="true">
+            <span class="fp-ring"></span>
+            <span class="fp-ring d2"></span>
+          </div>
+          <div class="fp-card" @click.stop>
+            <span class="fp-kicker">FIRST ECHO</span>
+            <h2 class="fp-title">第一次来？</h2>
+            <p class="fp-body">在这片黑暗里，<strong>声音是唯一的眼睛</strong>。<br>花半分钟看一遍真实操作演示，能少迷很多路。</p>
+            <div class="fp-actions">
+              <button class="fp-btn primary" @click="acceptTutorial">看看教程</button>
+              <button class="fp-btn ghost" @click="declineTutorial">直接开始</button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- 提示：可随时在右上角查看教程 -->
+      <transition name="fpfade">
+        <div v-if="showTopHint" class="top-hint">随时点右上角 <b>?</b> 查看操作教程</div>
+      </transition>
     </Teleport>
   </div>
 </template>
@@ -81,7 +104,19 @@ const emit = defineEmits(['restart', 'levels', 'home', 'toggleCamera', 'helpDog'
 
 const showMenu = ref(false)
 const showTutorial = ref(false)
+const showFirstPrompt = ref(false)
+const showTopHint = ref(false)
+let topHintTimer = null
 const cameraOn = ref(false)
+
+// 首次进入是否已询问过教程（本地记忆，避免重复打扰）
+const TUT_PROMPT_KEY = 'em_tut_prompt_v1'
+function hasSeenPrompt() {
+  try { return localStorage.getItem(TUT_PROMPT_KEY) === '1' } catch (e) { return false }
+}
+function markSeenPrompt() {
+  try { localStorage.setItem(TUT_PROMPT_KEY, '1') } catch (e) { /* 隐私模式等忽略 */ }
+}
 
 // 仅在 playing / transition / victory 显示菜单按钮
 const showMenuBtn = computed(() => {
@@ -110,6 +145,20 @@ function openTutorial() {
   showTutorial.value = true
 }
 
+// 首次弹窗：是 → 看教程；否 → 关闭并提示右上角入口
+function acceptTutorial() {
+  markSeenPrompt()
+  showFirstPrompt.value = false
+  showTutorial.value = true
+}
+function declineTutorial() {
+  markSeenPrompt()
+  showFirstPrompt.value = false
+  showTopHint.value = true
+  if (topHintTimer) clearTimeout(topHintTimer)
+  topHintTimer = setTimeout(() => { showTopHint.value = false }, 4500)
+}
+
 let raf = null
 function syncCamera() {
   if (typeof window.__isCameraOn === 'function') {
@@ -117,8 +166,17 @@ function syncCamera() {
   }
   raf = requestAnimationFrame(syncCamera)
 }
-onMounted(() => { syncCamera() })
-onUnmounted(() => { if (raf) cancelAnimationFrame(raf) })
+onMounted(() => {
+  syncCamera()
+  // 首次进入：默认弹出“是否查看教程”
+  if (!hasSeenPrompt()) {
+    setTimeout(() => { showFirstPrompt.value = true }, 500)
+  }
+})
+onUnmounted(() => {
+  if (raf) cancelAnimationFrame(raf)
+  if (topHintTimer) clearTimeout(topHintTimer)
+})
 </script>
 
 <style scoped>
@@ -230,6 +288,154 @@ onUnmounted(() => { if (raf) cancelAnimationFrame(raf) })
   color: #fff;
   background: rgba(76, 175, 80, 0.15);
 }
+
+/* ===== 首次进入：教程询问弹窗 ===== */
+.fp-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+  background: rgba(2, 5, 8, 0.82);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+.fp-ambient {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.fp-ring {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  width: 80px;
+  height: 80px;
+  margin: -40px 0 0 -40px;
+  border: 1px solid rgba(76, 175, 80, 0.22);
+  border-radius: 50%;
+  animation: fp-sonar 5s ease-out infinite;
+}
+.fp-ring.d2 { animation-delay: 2.5s; }
+@keyframes fp-sonar {
+  0% { transform: scale(0.3); opacity: 0.5; }
+  100% { transform: scale(7); opacity: 0; }
+}
+.fp-card {
+  position: relative;
+  width: 100%;
+  max-width: 380px;
+  padding: 28px 26px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background: linear-gradient(160deg, rgba(17, 25, 23, 0.97), rgba(8, 12, 12, 0.97));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  text-align: left;
+  font-family: ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+.fp-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: linear-gradient(to bottom, #4CAF50, transparent);
+}
+.fp-kicker {
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: rgba(76, 175, 80, 0.85);
+}
+.fp-title {
+  font-family: 'Courier New', monospace;
+  font-size: clamp(24px, 7vw, 32px);
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #f2f7f4;
+  margin: 6px 0 12px;
+  text-shadow: 0 0 18px rgba(76, 175, 80, 0.25);
+}
+.fp-body {
+  font-size: 13.5px;
+  line-height: 1.85;
+  color: #9fada7;
+  margin: 0 0 22px;
+}
+.fp-body strong { color: #7df0a6; font-weight: 600; }
+.fp-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.fp-btn {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  letter-spacing: 1px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.22s ease;
+  text-transform: none;
+}
+.fp-btn.primary {
+  border: 1px solid #4CAF50;
+  background: rgba(76, 175, 80, 0.14);
+  color: #d8ffe6;
+}
+.fp-btn.primary:hover {
+  background: #4CAF50;
+  color: #04130b;
+  box-shadow: 0 0 22px rgba(76, 175, 80, 0.5);
+  transform: translateY(-1px);
+}
+.fp-btn.primary:active {
+  background: #3d9142;
+  color: #04130b;
+  transform: translateY(0);
+}
+.fp-btn.ghost {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  color: #9fada7;
+}
+.fp-btn.ghost:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.fp-btn.ghost:active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+/* 右上角入口提示 toast */
+.top-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 260;
+  padding: 9px 18px;
+  border: 1px solid rgba(76, 175, 80, 0.32);
+  border-radius: 999px;
+  background: rgba(8, 12, 12, 0.92);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+  color: #cdd6d2;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  font-family: ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+.top-hint b { color: #7df0a6; }
+
+/* 弹窗 / toast 过渡 */
+.tutpop-enter-active { transition: opacity 0.35s ease; }
+.tutpop-enter-active .fp-card { transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s ease; }
+.tutpop-enter-from { opacity: 0; }
+.tutpop-enter-from .fp-card { transform: translateY(18px) scale(0.94); opacity: 0; }
+.tutpop-leave-active { transition: opacity 0.25s ease; }
+.tutpop-leave-to { opacity: 0; }
+.fp-fade-enter-active, .fp-fade-leave-active { transition: opacity 0.4s ease, transform 0.4s ease; }
+.fp-fade-enter-from, .fp-fade-leave-to { opacity: 0; transform: translate(-50%, 10px); }
 
 .menu-backdrop {
   position: fixed;
