@@ -51,6 +51,12 @@ export function createThreeMaze(mountEl) {
 
   function setFollowPlayer(on) { followPlayer = on }
 
+  // 自动环绕（用于教程预渲染演示）
+  function setAutoRotate(on, speed) {
+    controls.autoRotate = !!on
+    controls.autoRotateSpeed = speed || 1.2
+  }
+
   // 发光贴图（玩家 / 狗狗 / 出口的假辉光）
   const glowTex = makeGlowTexture()
 
@@ -836,6 +842,7 @@ export function createThreeMaze(mountEl) {
     fitCubeCamera,
     resolveDirection,
     setFollowPlayer,
+    setAutoRotate,
     resize,
     dispose,
     get renderer() { return renderer },
