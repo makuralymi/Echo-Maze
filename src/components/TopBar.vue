@@ -69,12 +69,12 @@
             <span class="fp-ring d2"></span>
           </div>
           <div class="fp-card" @click.stop>
-            <span class="fp-kicker">FIRST ECHO</span>
-            <h2 class="fp-title">第一次来？</h2>
-            <p class="fp-body">在这片黑暗里，<strong>声音是唯一的眼睛</strong>。<br>花半分钟看一遍真实操作演示，能少迷很多路。</p>
+            <span class="fp-kicker">TUTORIAL</span>
+            <h2 class="fp-title">先看一遍教程？</h2>
+            <p class="fp-body">在这片黑暗里，<strong>声音是唯一的眼睛</strong>。<br>半分钟的真实操作演示，能少迷很多路。</p>
             <div class="fp-actions">
               <button class="fp-btn primary" @click="acceptTutorial">看看教程</button>
-              <button class="fp-btn ghost" @click="declineTutorial">直接开始</button>
+              <button class="fp-btn ghost" @click="declineTutorial">不再提示</button>
             </div>
           </div>
         </div>
@@ -109,13 +109,13 @@ const showTopHint = ref(false)
 let topHintTimer = null
 const cameraOn = ref(false)
 
-// 首次进入是否已询问过教程（本地记忆，避免重复打扰）
-const TUT_PROMPT_KEY = 'em_tut_prompt_v1'
-function hasSeenPrompt() {
-  try { return localStorage.getItem(TUT_PROMPT_KEY) === '1' } catch (e) { return false }
+// 是否被设为「不再提示」：仅“不再提示”写入；“看教程”不写，故默认每次进入都弹
+const TUT_NOREMIND_KEY = 'em_tut_noremind_v1'
+function isPromptSuppressed() {
+  try { return localStorage.getItem(TUT_NOREMIND_KEY) === '1' } catch (e) { return false }
 }
-function markSeenPrompt() {
-  try { localStorage.setItem(TUT_PROMPT_KEY, '1') } catch (e) { /* 隐私模式等忽略 */ }
+function suppressPrompt() {
+  try { localStorage.setItem(TUT_NOREMIND_KEY, '1') } catch (e) { /* 隐私模式等忽略 */ }
 }
 
 // 仅在 playing / transition / victory 显示菜单按钮
@@ -145,14 +145,14 @@ function openTutorial() {
   showTutorial.value = true
 }
 
-// 首次弹窗：是 → 看教程；否 → 关闭并提示右上角入口
+// 是 → 打开教程；不写入“不再提示”，下次进入仍会询问
 function acceptTutorial() {
-  markSeenPrompt()
   showFirstPrompt.value = false
   showTutorial.value = true
 }
+// 否 / 不再提示 → 永久不再自动弹出，并提示右上角手动入口
 function declineTutorial() {
-  markSeenPrompt()
+  suppressPrompt()
   showFirstPrompt.value = false
   showTopHint.value = true
   if (topHintTimer) clearTimeout(topHintTimer)
@@ -168,8 +168,8 @@ function syncCamera() {
 }
 onMounted(() => {
   syncCamera()
-  // 首次进入：默认弹出“是否查看教程”
-  if (!hasSeenPrompt()) {
+  // 默认每次进入都弹“是否查看教程”，除非用户选过“不再提示”
+  if (!isPromptSuppressed()) {
     setTimeout(() => { showFirstPrompt.value = true }, 500)
   }
 })
