@@ -18,15 +18,16 @@
       <button class="pad-btn vert" @pointerdown.prevent="onVertDown('descend')" @pointerup="onVertUp" @pointerleave="onVertUp" @pointercancel="onVertUp" aria-label="降层">▼</button>
     </div>
 
-    <!-- 层聚焦选择（仅立方关卡且多层）：单层显示，彻底解决多层叠加无法读图 -->
+    <!-- 层聚焦选择（仅立方关卡且多层）：全=全层视野 / 本=当前层实时 / 数字=该层蓝图 -->
     <div v-if="isPlaying && isCube && layerCount > 1" class="layer-picker" @pointerdown.stop>
       <span class="lp-label">层</span>
-      <button class="layer-btn" :class="{ active: layerMode === 'all' }" @click="setLayerMode('all')" aria-label="跟随当前层（实时回声）">本</button>
+      <button class="layer-btn" :class="{ active: layerMode === 'all' }" @click="setLayerMode('all')" aria-label="全层视野（当前层不透明，其余透明）">全</button>
+      <button class="layer-btn" :class="{ active: layerMode === 'live' }" @click="setLayerMode('live')" aria-label="只看当前层（实时回声）">本</button>
       <button
         v-for="l in layerCount"
         :key="l"
         class="layer-btn"
-        :class="{ active: layerMode === l - 1 || (layerMode === 'all' && playerLayer === l - 1), current: playerLayer === l - 1 }"
+        :class="{ active: layerMode === l - 1 || (layerMode === 'live' && playerLayer === l - 1), current: playerLayer === l - 1 }"
         @click="setLayerMode(l - 1)"
       >{{ l }}</button>
     </div>
@@ -293,7 +294,7 @@ function loadCube() {
   cubeRows = config.r
   cubeLayers = config.layers || 2
   layerCount.value = cubeLayers
-  layerMode.value = 'all'
+  layerMode.value = 'live'
 
   let attempts = 0
   let result

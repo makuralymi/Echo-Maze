@@ -312,11 +312,14 @@ export function createThreeMaze(mountEl) {
     if (dirty && mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   }
 
-  // 单层显隐：聚焦/蓝图层不透明，其余层直接隐藏（避免斜视角下多层重叠糊成一团）
-  function setLayerVisible(mesh, vis) {
+  // 单层显隐与透明度：全层视野用真透明（depthWrite 关闭避免遮挡），单看/蓝图不透明
+  function setLayerVisible(mesh, vis, opacity = 1) {
     if (!mesh) return
     mesh.visible = vis
-    if (vis) { mesh.material.opacity = 1; mesh.material.depthWrite = true }
+    if (vis) {
+      mesh.material.opacity = opacity
+      mesh.material.depthWrite = opacity >= 0.99
+    }
   }
 
   // 蓝图模式：把整层墙体设为恒定亮度（无需回声即可看全该层结构）
@@ -597,18 +600,27 @@ export function createThreeMaze(mountEl) {
     const cpl = cols * rows
     const P = player.l | 0                       // 玩家当前层
     const soloNum = (typeof solo === 'number') ? solo : -1
-    const viewLayer = soloNum >= 0 ? soloNum : P // 当前展示墙体的层
+    const isAll = (solo === 'all')               // 全层视野模式
 
-    // 每层只可能处于三种状态：蓝图（恒定全显）/ 实时（回声点亮）/ 隐藏
-    // —— 任何时刻最多只画一层的墙，彻底解决多层叠加看不清的问题
+    // 三种视图：'all' 全层（当前不透明+其余真透明）/ 数字 蓝图 / 'live' 本层实时
     for (let l = 0; l < layers; l++) {
-      const isBlueprint = (l === soloNum)
-      const isLive = (soloNum < 0 && l === P)
-      const show = isBlueprint || isLive
-      setLayerVisible(cubeWallsH[l], show)
-      setLayerVisible(cubeWallsV[l], show)
+      let show = false
+      let blueprint = false
+      let opacity = 1
+      if (isAll) {
+        show = true
+        const d = Math.abs(l - P)
+        opacity = d === 0 ? 1.0 : d === 1 ? 0.3 : 0.15
+      } else if (soloNum >= 0) {
+        show = (l === soloNum)
+        blueprint = show
+      } else {
+        show = (l === P)
+      }
+      setLayerVisible(cubeWallsH[l], show, opacity)
+      setLayerVisible(cubeWallsV[l], show, opacity)
       if (show) {
-        if (isBlueprint) {
+        if (blueprint) {
           setWallConstant(cubeWallsH[l], cubeLastH[l], 0.7)
           setWallConstant(cubeWallsV[l], cubeLastV[l], 0.7)
         } else {
@@ -616,24 +628,37 @@ export function createThreeMaze(mountEl) {
           updateWallColors(cubeWallsV[l], cubeOwnersV[l], cubeLastV[l], grid)
         }
       }
-      // 网格面：展示层亮、玩家层中、其余作极淡参照
+      // 网格面
       let gop
-      if (l === viewLayer) gop = 0.5
-      else if (l === P) gop = 0.3
-      else gop = 0.06
+      if (isAll) {
+        const d = Math.abs(l - P)
+        gop = d === 0 ? 0.5 : d === 1 ? 0.25 : 0.1
+      } else {
+        const viewLayer = soloNum >= 0 ? soloNum : P
+        gop = l === viewLayer ? 0.5 : (l === P ? 0.3 : 0.06)
+      }
       if (layerGrids[l]) {
         layerGrids[l].material.opacity = gop
         layerGrids[l].visible = gop > 0.02
       }
     }
 
-    // 终点：仅在其所在层为展示层时显示
+    // 终点
     if (cubeExitPillar) {
       const el = Math.floor(cubeExitPillar._cellIdx / cpl)
-      const exitActive = (el === viewLayer)
-      const er = (soloNum >= 0) ? 0.7 : Math.min(1, grid[cubeExitPillar._cellIdx].revealTimer)
-      cubeExitFloor.material.opacity = exitActive ? 0.6 * er : 0
-      cubeExitPillar.material.opacity = exitActive ? 0.35 * er : 0
+      let ef
+      let er
+      if (isAll) {
+        const d = Math.abs(el - P)
+        ef = d === 0 ? 1.0 : d === 1 ? 0.3 : 0.15
+        er = Math.min(1, grid[cubeExitPillar._cellIdx].revealTimer)
+      } else {
+        const viewLayer = soloNum >= 0 ? soloNum : P
+        ef = (el === viewLayer) ? 1 : 0
+        er = (soloNum >= 0) ? 0.7 : Math.min(1, grid[cubeExitPillar._cellIdx].revealTimer)
+      }
+      cubeExitFloor.material.opacity = 0.6 * er * ef
+      cubeExitPillar.material.opacity = 0.35 * er * ef
     }
 
     // 玩家（真三维）
