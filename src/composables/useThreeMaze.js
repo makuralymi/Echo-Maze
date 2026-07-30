@@ -374,6 +374,44 @@ export function createThreeMaze(mountEl) {
     geo.attributes.position.needsUpdate = true
   }
 
+  // 相机相对方向：把“屏幕方向意图”换算成当前视角下最贴合的网格移动方向。
+  // 这样旋转镜头后，按“上”始终是“远离镜头”，符合第三人称操作直觉。
+  const _fwd = new THREE.Vector3()
+  const _right = new THREE.Vector3()
+  const _intent = new THREE.Vector3()
+  const UP = new THREE.Vector3(0, 1, 0)
+  // 四个网格方向对应的世界向量（X=列 c，Z=行 r）
+  const GRID_DIRS = [
+    { name: 'up', v: new THREE.Vector3(0, 0, -1) },    // r--
+    { name: 'down', v: new THREE.Vector3(0, 0, 1) },   // r++
+    { name: 'left', v: new THREE.Vector3(-1, 0, 0) },  // c--
+    { name: 'right', v: new THREE.Vector3(1, 0, 0) },  // c++
+  ]
+
+  function resolveDirection(screenDir) {
+    if (!controls) return screenDir
+    // 相机水平朝向（镜头 → 目标，去掉 Y 分量）
+    _fwd.set(controls.target.x - camera.position.x, 0, controls.target.z - camera.position.z)
+    if (_fwd.lengthSq() < 1e-6) return screenDir
+    _fwd.normalize()
+    _right.crossVectors(_fwd, UP).normalize() // 相机右方向
+
+    if (screenDir === 'up') _intent.copy(_fwd)
+    else if (screenDir === 'down') _intent.copy(_fwd).negate()
+    else if (screenDir === 'right') _intent.copy(_right)
+    else if (screenDir === 'left') _intent.copy(_right).negate()
+    else return screenDir
+
+    // 取与意图点积最大（夹角最小）的网格方向
+    let best = screenDir
+    let bestDot = -Infinity
+    for (const g of GRID_DIRS) {
+      const d = _intent.dot(g.v)
+      if (d > bestDot) { bestDot = d; best = g.name }
+    }
+    return best
+  }
+
   function fitCamera() {
     const target = new THREE.Vector3(cols / 2, 0, rows / 2)
     const R = Math.hypot(cols, rows) / 2
@@ -464,6 +502,7 @@ export function createThreeMaze(mountEl) {
     buildMaze,
     syncFrame,
     fitCamera,
+    resolveDirection,
     resize,
     dispose,
     get renderer() { return renderer },

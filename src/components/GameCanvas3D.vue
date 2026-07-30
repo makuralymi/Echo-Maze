@@ -233,17 +233,25 @@ function startSession() {
 }
 
 // ===== 输入：键盘 + 方向盘 =====
+// 把“屏幕方向”换算为当前镜头视角下最贴合的网格移动方向（相机相对操控）：
+// 旋转镜头后，按“上”始终是“远离镜头”，而不是固定在世界初始方向。
+function moveRelative(screenDir) {
+  const dir = maze ? maze.resolveDirection(screenDir) : screenDir
+  props.movePlayer(dir)
+}
+
 function handleKeydown(e) {
-  if (e.key === 'ArrowUp' || e.key === 'w') props.movePlayer('up')
-  if (e.key === 'ArrowRight' || e.key === 'd') props.movePlayer('right')
-  if (e.key === 'ArrowDown' || e.key === 's') props.movePlayer('down')
-  if (e.key === 'ArrowLeft' || e.key === 'a') props.movePlayer('left')
+  if (e.key === 'ArrowUp' || e.key === 'w') moveRelative('up')
+  if (e.key === 'ArrowRight' || e.key === 'd') moveRelative('right')
+  if (e.key === 'ArrowDown' || e.key === 's') moveRelative('down')
+  if (e.key === 'ArrowLeft' || e.key === 'a') moveRelative('left')
 }
 
 function onPadDown(dir) {
-  props.movePlayer(dir)
+  moveRelative(dir)
   onPadUp()
-  padRepeatTimer = setInterval(() => props.movePlayer(dir), 180)
+  // 长按连续移动：每次重复都重新按当前视角换算方向
+  padRepeatTimer = setInterval(() => moveRelative(dir), 180)
 }
 function onPadUp() {
   if (padRepeatTimer) { clearInterval(padRepeatTimer); padRepeatTimer = null }
@@ -408,25 +416,26 @@ onUnmounted(() => {
   touch-action: none;
 }
 
-/* 方向盘 */
+/* 方向盘（相机相对操控） */
 .dpad {
+  --pad: clamp(56px, 16vw, 72px);
   position: absolute;
-  right: 18px;
-  bottom: 20px;
-  width: 132px;
-  height: 132px;
+  right: 16px;
+  bottom: 18px;
+  width: calc(var(--pad) * 3);
+  height: calc(var(--pad) * 3);
   z-index: 40;
   pointer-events: auto;
 }
 .pad-btn {
   position: absolute;
-  width: 42px;
-  height: 42px;
+  width: var(--pad);
+  height: var(--pad);
   border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 15px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: clamp(20px, 6vw, 28px);
   line-height: 1;
   display: flex;
   align-items: center;
@@ -440,13 +449,13 @@ onUnmounted(() => {
   text-transform: none;
 }
 .pad-btn:active {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.24);
   color: #000;
 }
-.pad-btn.up    { top: 0;    left: 45px; }
-.pad-btn.left  { top: 45px; left: 0; }
-.pad-btn.right { top: 45px; left: 90px; }
-.pad-btn.down  { top: 90px; left: 45px; }
+.pad-btn.up    { top: 0; left: var(--pad); }
+.pad-btn.left  { top: var(--pad); left: 0; }
+.pad-btn.right { top: var(--pad); left: calc(var(--pad) * 2); }
+.pad-btn.down  { top: calc(var(--pad) * 2); left: var(--pad); }
 
 /* 操作提示 toast */
 .hint-toast {
