@@ -69,9 +69,9 @@
             <span class="fp-ring d2"></span>
           </div>
           <div class="fp-card" @click.stop>
-            <span class="fp-kicker">TUTORIAL</span>
+            <span class="fp-kicker">欢迎来到回声迷宫</span>
             <h2 class="fp-title">先看一遍教程？</h2>
-            <p class="fp-body">在这片黑暗里，<strong>声音是唯一的眼睛</strong>。<br>半分钟的真实操作演示，能少迷很多路。</p>
+            <p class="fp-body">在这片黑暗里，<strong>声音是唯一的眼睛</strong>。<br>半分钟的真实操作演示，能少迷很多路。<br>之后可以在顶栏的？打开。</p>
             <div class="fp-actions">
               <button class="fp-btn primary" @click="acceptTutorial">看看教程</button>
               <button class="fp-btn ghost" @click="declineTutorial">不再提示</button>
@@ -315,7 +315,7 @@ onUnmounted(() => {
   width: 80px;
   height: 80px;
   margin: -40px 0 0 -40px;
-  border: 1px solid rgba(76, 175, 80, 0.22);
+  border: 1px solid rgba(0, 0, 0, 0.22);
   border-radius: 50%;
   animation: fp-sonar 5s ease-out infinite;
 }
@@ -329,9 +329,9 @@ onUnmounted(() => {
   width: 100%;
   max-width: 380px;
   padding: 28px 26px 24px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0);
   border-radius: 18px;
-  background: linear-gradient(160deg, rgba(17, 25, 23, 0.97), rgba(8, 12, 12, 0.97));
+  background: linear-gradient(160deg, rgba(31, 30, 30, 0.97), rgba(8, 12, 12, 0.97));
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
   overflow: hidden;
   text-align: left;
@@ -342,13 +342,13 @@ onUnmounted(() => {
   position: absolute;
   left: 0; top: 0; bottom: 0;
   width: 3px;
-  background: linear-gradient(to bottom, #4CAF50, transparent);
+  background: linear-gradient(to bottom, #ffffff, transparent);
 }
 .fp-kicker {
   font-family: 'Courier New', monospace;
   font-size: 10px;
   letter-spacing: 4px;
-  color: rgba(76, 175, 80, 0.85);
+  color: rgba(255, 255, 255, 0.85);
 }
 .fp-title {
   font-family: 'Courier New', monospace;
@@ -357,15 +357,15 @@ onUnmounted(() => {
   letter-spacing: 1px;
   color: #f2f7f4;
   margin: 6px 0 12px;
-  text-shadow: 0 0 18px rgba(76, 175, 80, 0.25);
+  text-shadow: 0 0 18px rgba(255, 255, 255, 0.25);
 }
 .fp-body {
   font-size: 13.5px;
   line-height: 1.85;
-  color: #9fada7;
+  color: #ffffff;
   margin: 0 0 22px;
 }
-.fp-body strong { color: #7df0a6; font-weight: 600; }
+.fp-body strong { color: #ffffff; font-weight: 600; }
 .fp-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .fp-btn {
   font-family: 'Courier New', monospace;
@@ -378,7 +378,7 @@ onUnmounted(() => {
   text-transform: none;
 }
 .fp-btn.primary {
-  border: 1px solid #4CAF50;
+  border: 1px solid #bbbbbb;
   background: rgba(76, 175, 80, 0.14);
   color: #d8ffe6;
 }
