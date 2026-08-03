@@ -36,7 +36,8 @@
               class="level-btn"
               :class="{ locked: lvl.locked }"
               :disabled="lvl.locked"
-              @click="emit('select', lvl.id)"
+              @click="emit('select', lvl.id); playClick()"
+              @mouseenter="playHover"
             >
               <span class="level-id">{{ lvl.id }}</span>
               <span class="level-info">
@@ -80,6 +81,9 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useSound } from '../composables/useSound.js'
+
+const { playClick, playHover } = useSound()
 
 const PER_PAGE = 10
 

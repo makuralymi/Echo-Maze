@@ -146,6 +146,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, defineAsyncComponent } from 'vue'
 import Demo2D from './Demo2D.vue'
+import { useSound } from '../composables/useSound.js'
+
+const { playClick } = useSound()
 
 // 三维演示懒加载：仅在打开指南时才拉取 three.js
 const Demo3D = defineAsyncComponent(() => import('./Demo3D.vue'))
@@ -154,7 +157,7 @@ const emit = defineEmits(['close'])
 const rootRef = ref(null)
 let io = null
 
-function onClose() { emit('close') }
+function onClose() { playClick(); emit('close') }
 
 function onKey(e) {
   if (e.key === 'Escape') onClose()

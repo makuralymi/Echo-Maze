@@ -2,12 +2,16 @@
   <div class="overlay">
     <h1>LEVEL CLEAR</h1>
     <p>黑暗迅速聚拢，你的声音是唯一的救赎...</p>
-    <button @click="emit('next')">进入下一层</button>
-    <button class="menu-btn" @click="emit('menu')">返回菜单</button>
+    <button @click="emit('next'); playClick()">进入下一层</button>
+    <button class="menu-btn" @click="emit('menu'); playClick()">返回菜单</button>
   </div>
 </template>
 
 <script setup>
+import { useSound } from '../composables/useSound.js'
+
+const { playClick } = useSound()
+
 const emit = defineEmits(['next', 'menu'])
 </script>
 

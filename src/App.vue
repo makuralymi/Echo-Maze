@@ -6,11 +6,13 @@
       :total="totalLevels"
       :is-mic-on="isMicOn"
       :dog-active="dogActive"
+      :bgm-on="bgmOn"
       @restart="onRestart"
       @levels="onMenu"
       @home="onHome"
       @toggle-camera="onToggleCamera"
       @help-dog="onHelpDog"
+      @toggle-bgm="toggleBgm"
     />
 
     <GameCanvas3D
@@ -101,6 +103,7 @@ import GameCanvas from './components/GameCanvas.vue'
 import { useAudio } from './composables/useAudio.js'
 import { useGame } from './composables/useGame.js'
 import { useCloudStorage } from './composables/useCloudStorage.js'
+import { useSound } from './composables/useSound.js'
 import { LEVELS, TOTAL_LEVELS, isLevel3D, isLevelCube } from './config/levelConfig.js'
 
 // 三维渲染组件懒加载：three.js 单独分包，仅在进入第 11 关时加载，
@@ -109,6 +112,7 @@ const GameCanvas3D = defineAsyncComponent(() => import('./components/GameCanvas3
 
 const { isMicOn, startMicrophone, getAudioLevels, stopMicrophone } = useAudio()
 const { load: loadSave, save: saveProgress } = useCloudStorage()
+const { bgmOn, initBgm, toggleBgm, playClick } = useSound()
 
 const {
   isPlaying,
@@ -219,6 +223,8 @@ function onEasterEggDone() {
 
 // 提供给 GameCanvas 中 StartScreen / LevelMenu 的回调
 window.__startLevel = (id) => {
+  initBgm() // 首次用户手势触发 BGM 初始化
+  playClick()
   startLevel(id)
 }
 

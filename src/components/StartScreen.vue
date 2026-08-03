@@ -16,6 +16,9 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useSound } from '../composables/useSound.js'
+
+const { playClick } = useSound()
 
 const props = defineProps({
   error: String,
@@ -28,6 +31,7 @@ const error = ref(props.error)
 
 function handleClick() {
   if (loading.value) return
+  playClick()
   loading.value = true
   error.value = ''
 

@@ -1,14 +1,15 @@
 <template>
   <div id="top-ui-bar-wrapper">
     <div id="top-ui-bar">
-      <button id="menu-toggle" v-if="showMenuBtn" @click="showMenu = !showMenu">☰</button>
+      <button id="menu-toggle" v-if="showMenuBtn" @click="toggleMenu" @mouseenter="playHover">☰</button>
       <button v-else id="menu-toggle" class="placeholder"></button>
       <div id="game-title">回声迷宫</div>
       <button
         id="dog-btn"
         v-if="showLevel"
         :class="{ active: dogActive }"
-        @click="emit('helpDog')"
+        @click="emit('helpDog'); playClick()"
+        @mouseenter="playHover"
         title="帮帮我布鲁斯"
       >
         <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" class="dog-icon">
@@ -28,33 +29,39 @@
         id="help-btn-bar"
         aria-label="操作指南"
         title="操作指南"
-        @click="openTutorial"
+        @click="openTutorial(); playClick()"
+        @mouseenter="playHover"
       >?</button>
     </div>
 
     <Teleport to="body">
       <!-- 菜单弹窗（仅在游戏中显示） -->
-      <div v-if="showMenu && showMenuBtn" class="menu-backdrop" @click="showMenu = false">
+      <div v-if="showMenu && showMenuBtn" class="menu-backdrop" @click="closeMenu">
         <div class="menu-dialog" @click.stop>
           <div class="menu-title">暂停</div>
 
-          <button class="menu-item" @click="handle('restart')">回到起点</button>
+          <button class="menu-item" @click="handle('restart'); playClick()" @mouseenter="playHover">回到起点</button>
+          <div class="menu-divider"></div>
+
+          <button class="menu-item" @click="emit('toggleBgm'); playClick()" @mouseenter="playHover">
+            背景音乐 {{ props.bgmOn ? 'ON' : 'OFF' }}
+          </button>
           <div class="menu-divider"></div>
 
           <div class="menu-row">
-            <button class="menu-item flex-item" @click="handle('toggleCamera')">
+            <button class="menu-item flex-item" @click="handle('toggleCamera'); playClick()" @mouseenter="playHover">
               探图模式 {{ cameraOn ? 'ON' : 'OFF' }}
             </button>
-            <button class="help-btn" aria-label="操作指南" @click="openTutorial()">?</button>
+            <button class="help-btn" aria-label="操作指南" @click="openTutorial(); playClick()" @mouseenter="playHover">?</button>
           </div>
           <div class="menu-divider"></div>
 
-          <button class="menu-item" @click="handle('levels')">再探前路</button>
+          <button class="menu-item" @click="handle('levels'); playClick()" @mouseenter="playHover">再探前路</button>
           <div class="menu-divider"></div>
 
-          <button class="menu-item danger" @click="handle('home')">迷失</button>
+          <button class="menu-item danger" @click="handle('home'); playClick()" @mouseenter="playHover">迷失</button>
 
-          <button class="close-btn" @click="showMenu = false">继续</button>
+          <button class="close-btn" @click="closeMenu" @mouseenter="playHover">继续</button>
         </div>
       </div>
 
@@ -73,8 +80,8 @@
             <h2 class="fp-title">先看一遍教程？</h2>
             <p class="fp-body">在这片黑暗里，<strong>声音是唯一的眼睛</strong>。<br>半分钟的真实操作演示，能少迷很多路。<br>之后可以在顶栏的？打开。</p>
             <div class="fp-actions">
-              <button class="fp-btn primary" @click="acceptTutorial">看看教程</button>
-              <button class="fp-btn ghost" @click="declineTutorial">不再提示</button>
+              <button class="fp-btn primary" @click="acceptTutorial" @mouseenter="playHover">看看教程</button>
+              <button class="fp-btn ghost" @click="declineTutorial" @mouseenter="playHover">不再提示</button>
             </div>
           </div>
         </div>
@@ -91,16 +98,20 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Tutorial from './Tutorial.vue'
+import { useSound } from '../composables/useSound.js'
 
 const props = defineProps({
   level: { type: Number, required: true },
   total: { type: Number, default: 5 },
   isMicOn: { type: Boolean, default: false },
   gamePhase: { type: String, default: '' },
-  dogActive: { type: Boolean, default: false }
+  dogActive: { type: Boolean, default: false },
+  bgmOn: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['restart', 'levels', 'home', 'toggleCamera', 'helpDog'])
+const emit = defineEmits(['restart', 'levels', 'home', 'toggleCamera', 'helpDog', 'toggleBgm'])
+
+const { playClick, playHover, playOpenMenu, playCloseMenu } = useSound()
 
 const showMenu = ref(false)
 const showTutorial = ref(false)
@@ -139,19 +150,34 @@ function handle(action) {
   emit(action)
 }
 
+function toggleMenu() {
+  showMenu.value = !showMenu.value
+  if (showMenu.value) {
+    playOpenMenu()
+  } else {
+    playCloseMenu()
+  }
+}
+function closeMenu() {
+  showMenu.value = false
+  playCloseMenu()
+}
+
 // 打开完整教程（顶栏 ? 与菜单 ? 共用）
 function openTutorial() {
   showMenu.value = false
   showTutorial.value = true
 }
 
-// 是 → 打开教程；不写入“不再提示”，下次进入仍会询问
+// 是 → 打开教程；不写入”不再提示”，下次进入仍会询问
 function acceptTutorial() {
   showFirstPrompt.value = false
+  playClick()
   showTutorial.value = true
 }
 // 否 / 不再提示 → 永久不再自动弹出，并提示右上角手动入口
 function declineTutorial() {
+  playClick()
   suppressPrompt()
   showFirstPrompt.value = false
   showTopHint.value = true

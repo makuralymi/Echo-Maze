@@ -2,12 +2,16 @@
   <div class="overlay">
     <h1 class="victory-title">逃出生天</h1>
     <p>你凭借声纳走出了所有的深渊！</p>
-    <button @click="emit('restart')">重头再来</button>
-    <button class="menu-btn" @click="emit('menu')">返回菜单</button>
+    <button @click="emit('restart'); playClick()">重头再来</button>
+    <button class="menu-btn" @click="emit('menu'); playClick()">返回菜单</button>
   </div>
 </template>
 
 <script setup>
+import { useSound } from '../composables/useSound.js'
+
+const { playClick } = useSound()
+
 const emit = defineEmits(['restart', 'menu'])
 </script>
 
