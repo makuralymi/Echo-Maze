@@ -18,7 +18,7 @@
 import { ref } from 'vue'
 import { useSound } from '../composables/useSound.js'
 
-const { playClick } = useSound()
+const { playClick, initBgm } = useSound()
 
 const props = defineProps({
   error: String,
@@ -32,6 +32,7 @@ const error = ref(props.error)
 function handleClick() {
   if (loading.value) return
   playClick()
+  initBgm() // 首次用户手势触发 BGM 播放
   loading.value = true
   error.value = ''
 

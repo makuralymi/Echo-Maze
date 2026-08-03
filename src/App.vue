@@ -112,7 +112,7 @@ const GameCanvas3D = defineAsyncComponent(() => import('./components/GameCanvas3
 
 const { isMicOn, startMicrophone, getAudioLevels, stopMicrophone } = useAudio()
 const { load: loadSave, save: saveProgress } = useCloudStorage()
-const { bgmOn, initBgm, toggleBgm, playClick } = useSound()
+const { bgmOn, toggleBgm, playClick } = useSound()
 
 const {
   isPlaying,
@@ -223,7 +223,6 @@ function onEasterEggDone() {
 
 // 提供给 GameCanvas 中 StartScreen / LevelMenu 的回调
 window.__startLevel = (id) => {
-  initBgm() // 首次用户手势触发 BGM 初始化
   playClick()
   startLevel(id)
 }
