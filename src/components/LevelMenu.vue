@@ -44,7 +44,13 @@
                 <span class="level-name">{{ lvl.name }}</span>
                 <span class="level-desc">{{ lvl.desc }}</span>
               </span>
-              <span v-if="lvl.locked" class="lock-icon">🔒</span>
+              <span v-if="lvl.locked" class="lock-icon">
+                <svg viewBox="0 0 24 24" class="lock-svg" aria-hidden="true">
+                  <rect x="5" y="11" width="14" height="10" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <circle cx="12" cy="16" r="1.2" fill="currentColor"/>
+                </svg>
+              </span>
               <span v-else-if="lvl.cleared" class="clear-icon">✓</span>
             </button>
           </div>
@@ -149,6 +155,18 @@ function onTouchEnd(e) {
     goToPage(currentPage.value + 1)
   }
 }
+
+onMounted(() => {
+  // 自动跳转到最高已解锁关卡所在页
+  if (props.levels && props.levels.length > 0) {
+    const unlocked = props.levels.filter(l => !l.locked)
+    const target = unlocked.length > 0 ? unlocked[unlocked.length - 1] : props.levels[0]
+    if (target) {
+      const p = Math.floor((target.id - 1) / PER_PAGE)
+      goToPage(p)
+    }
+  }
+})
 </script>
 
 <style scoped>
@@ -305,6 +323,23 @@ h1 {
 }
 .lock-icon, .clear-icon {
   font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+.lock-svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+  color: #777;
+  opacity: 0.85;
+}
+.clear-icon {
+  color: #4CAF50;
+  font-weight: bold;
 }
 
 /* 页码点 */

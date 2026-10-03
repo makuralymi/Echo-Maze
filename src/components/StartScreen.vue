@@ -5,7 +5,8 @@
       在无尽的黑暗中，<span class="highlight">滑动屏幕</span> 摸索前行。<br>
       你需要不断发出声音，利用声波照亮墙壁。<br>
       <span class="highlight">需要一定的音量才能触发声波，声音越大，看的越远。</span><br>
-      光影将在 1 秒后消散，不要停下呼喊。
+      光影将在 1 秒后消散，不要停下呼喊。<br>
+      <span class="highlight">注意：为了游戏的正常运行，需要授予麦克风权限,如果出现失败请退出重进游戏。</span>
     </p>
     <button :disabled="loading" @click="handleClick">
       {{ loading ? '连接中...' : '允许麦克风并潜入' }}

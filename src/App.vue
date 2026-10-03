@@ -79,6 +79,14 @@
       :handle-level-complete="handleLevelComplete"
       :start-microphone="startMicrophone"
       :level-list="levelList"
+      :is-polar-mode="isPolarMode"
+      :rings="rings"
+      :sectors="sectors"
+      :polar-center="polarCenter"
+      :polar-inner-r="polarInnerR"
+      :polar-ring-width="polarRingWidth"
+      :polar-sector-angle="polarSectorAngle"
+      :portals="portals"
       :dog-active="dogActive"
       :dog-path="dogPath"
       :dog-world-path="dogWorldPath"
@@ -104,7 +112,7 @@ import { useAudio } from './composables/useAudio.js'
 import { useGame } from './composables/useGame.js'
 import { useCloudStorage } from './composables/useCloudStorage.js'
 import { useSound } from './composables/useSound.js'
-import { LEVELS, TOTAL_LEVELS, isLevel3D, isLevelCube } from './config/levelConfig.js'
+import { LEVELS, TOTAL_LEVELS, isLevel3D, isLevelCube, isLevelSphere, isLocalTest } from './config/levelConfig.js'
 
 // 三维渲染组件懒加载：three.js 单独分包，仅在进入第 11 关时加载，
 // 不影响 1–10 关（2D）的首屏体积。
@@ -139,6 +147,14 @@ const {
   goToLevelMenu,
   finalizeLevelSetup,
   handleLevelComplete,
+  isPolarMode,
+  rings,
+  sectors,
+  polarCenter,
+  polarInnerR,
+  polarRingWidth,
+  polarSectorAngle,
+  portals,
   dogActive,
   dogPath,
   dogWorldPath,
@@ -155,24 +171,34 @@ const {
 
 const errorMsg = ref('')
 const totalLevels = TOTAL_LEVELS
+const actualClearedProgress = ref(1)
 
 // 当前关卡是否为三维渲染（第 11 关）
 const is3DLevel = computed(() => isLevel3D(currentLevel.value - 1))
-// 三维渲染模式：'cube'（多层立方，可升降层）或 'plane'（单层俯视）
-const viewMode = computed(() => (isLevelCube(currentLevel.value - 1) ? 'cube' : 'plane'))
+// 三维渲染模式：'sphere'（天球） | 'cube'（多层立方） | 'plane'（单层俯视）
+const viewMode = computed(() => {
+  const lvlIdx = currentLevel.value - 1
+  if (isLevelSphere(lvlIdx)) return 'sphere'
+  if (isLevelCube(lvlIdx)) return 'cube'
+  return 'plane'
+})
 
 const levelList = computed(() => {
   return LEVELS.map(l => ({
     ...l,
-    locked: l.id > unlockedLevel.value,
-    cleared: l.id < unlockedLevel.value,
+    // 本地测试环境默认全部关卡解锁（locked: false），可任意自由选择
+    locked: isLocalTest ? false : l.id > unlockedLevel.value,
+    cleared: isLocalTest ? l.id < actualClearedProgress.value : l.id < unlockedLevel.value,
   }))
 })
 
 onMounted(async () => {
   const saved = await loadSave()
   if (saved && typeof saved.unlocked === 'number') {
-    unlockedLevel.value = Math.max(1, Math.min(TOTAL_LEVELS, saved.unlocked))
+    actualClearedProgress.value = Math.max(1, Math.min(TOTAL_LEVELS, saved.unlocked))
+    if (!isLocalTest) {
+      unlockedLevel.value = actualClearedProgress.value
+    }
   }
 })
 
@@ -183,11 +209,12 @@ onUnmounted(() => {
 })
 
 function persistProgress() {
-  if (unlockedLevel.value <= 1) return
-  saveProgress({ unlocked: unlockedLevel.value })
+  if (actualClearedProgress.value <= 1) return
+  saveProgress({ unlocked: actualClearedProgress.value })
 }
 
 function onNextLevel() {
+  actualClearedProgress.value = Math.max(actualClearedProgress.value, currentLevel.value + 1)
   persistProgress()
   nextLevel()
 }

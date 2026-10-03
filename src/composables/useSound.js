@@ -80,6 +80,64 @@ function playHover()    { playSfx('./UI/ui-hover.mp3') }
 function playOpenMenu() { playSfx('./UI/ui-open-menu.mp3') }
 function playCloseMenu(){ playSfx('./UI/ui-close-menu.mp3') }
 
+let audioCtx = null
+function getAudioContext() {
+  if (!audioCtx && typeof window !== 'undefined') {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext
+    if (AudioCtx) audioCtx = new AudioCtx()
+  }
+  return audioCtx
+}
+
+/** 极坐标折跃传送音效（双振荡器空间频率弯折合成音） */
+export function playWarpSound() {
+  try {
+    const ctx = getAudioContext()
+    if (!ctx) return
+    if (ctx.state === 'suspended') ctx.resume()
+    const now = ctx.currentTime
+
+    const osc1 = ctx.createOscillator()
+    const osc2 = ctx.createOscillator()
+    const gain = ctx.createGain()
+    const filter = ctx.createBiquadFilter()
+
+    osc1.type = 'sine'
+    osc2.type = 'sawtooth'
+
+    // 频率向上快速扫射然后坠落，形成空间折跃空灵声
+    osc1.frequency.setValueAtTime(220, now)
+    osc1.frequency.exponentialRampToValueAtTime(880, now + 0.12)
+    osc1.frequency.exponentialRampToValueAtTime(110, now + 0.38)
+
+    osc2.frequency.setValueAtTime(330, now)
+    osc2.frequency.exponentialRampToValueAtTime(1320, now + 0.12)
+    osc2.frequency.exponentialRampToValueAtTime(165, now + 0.38)
+
+    filter.type = 'bandpass'
+    filter.frequency.setValueAtTime(600, now)
+    filter.frequency.exponentialRampToValueAtTime(2400, now + 0.12)
+    filter.frequency.exponentialRampToValueAtTime(400, now + 0.38)
+    filter.Q.setValueAtTime(4, now)
+
+    gain.gain.setValueAtTime(0, now)
+    gain.gain.linearRampToValueAtTime(0.3, now + 0.04)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4)
+
+    osc1.connect(filter)
+    osc2.connect(filter)
+    filter.connect(gain)
+    gain.connect(ctx.destination)
+
+    osc1.start(now)
+    osc2.start(now)
+    osc1.stop(now + 0.4)
+    osc2.stop(now + 0.4)
+  } catch {
+    // 忽略音频环境未激活
+  }
+}
+
 /**
  * 全局音效 composable
  * 所有组件可独立 import { useSound } 获取同一模块级单例。
@@ -94,5 +152,6 @@ export function useSound() {
     playHover,
     playOpenMenu,
     playCloseMenu,
+    playWarpSound,
   }
 }

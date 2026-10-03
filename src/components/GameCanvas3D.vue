@@ -1,7 +1,15 @@
 <template>
-  <div id="game-container-3d">
+  <div id="game-container-3d" @pointerdown="handlePointerDown" @pointerup="handlePointerUp">
     <!-- Three.js 渲染挂载点（canvas 由渲染器注入） -->
     <div ref="mountRef" class="three-mount"></div>
+
+    <!-- 球体关卡专属：全景浏览 ⟷ 探图模式切换按钮 -->
+    <div v-if="isPlaying && isSphere" class="sphere-toggle-container" @pointerdown.stop>
+      <button class="sphere-toggle-btn" :class="{ 'is-fp': isExplorationMode }" @click="toggleSphereViewMode">
+        <span class="st-icon">{{ isExplorationMode ? '👁️' : '🌐' }}</span>
+        <span class="st-text">{{ isExplorationMode ? '探图模式 (第三人称)' : '浏览球体' }}</span>
+      </button>
+    </div>
 
     <!-- 触摸方向盘（移动），与 OrbitControls（相机）互不干扰 -->
     <div v-if="isPlaying" class="dpad" @pointerdown.stop>
@@ -84,7 +92,9 @@ import StartScreen from './StartScreen.vue'
 import LevelTransition from './LevelTransition.vue'
 import VictoryScreen from './VictoryScreen.vue'
 import { createThreeMaze } from '../composables/useThreeMaze.js'
+import { createThreeSphereMaze } from '../composables/useThreeSphereMaze.js'
 import { useMaze3D } from '../composables/useMaze3D.js'
+import { useSphereMaze } from '../composables/useSphereMaze.js'
 import { getLevelConfig } from '../config/levelConfig.js'
 
 const props = defineProps({
@@ -164,12 +174,28 @@ const layerMode = ref('all')
 const layerCount = ref(0)   // 当前关卡层数（供模板渲染按钮）
 const playerLayer = ref(0)  // 玩家所在层（供模板高亮）
 
-// 操作提示文案（立方关含升降层 / 选层看图说明）
-const hintText = computed(() =>
-  isCube.value
-    ? '拖拽转视角 · 方向盘/WASD 平移 · Q/E 升降层 · 左选层看全图'
-    : '拖拽旋转视角 · 双指缩放 · 方向盘 / 方向键移动'
-)
+// ===== 球体关卡状态 (第七幕：寰宇天球) =====
+const isSphere = computed(() => props.viewMode === 'sphere')
+const sphereMaze = useSphereMaze()
+let sphereRenderer = null
+let sphereGrid = []
+let sphereN = 4
+let spherePlayer = { f: 0, u: 0, v: 0 }
+let sphereExit = { f: 1, u: 0, v: 0 }
+const isExplorationMode = ref(false)
+
+// 操作提示文案
+const hintText = computed(() => {
+  if (isSphere.value) {
+    return isExplorationMode.value
+      ? '探图模式（第三人称）：滑动或按键移动 · 声音扩散照亮迷宫 · 可随时切换全景'
+      : '默认全景模式：拖拽浏览整颗星球 · 点击右上方【探图模式】俯瞰迷宫'
+  }
+  if (isCube.value) {
+    return '拖拽转视角 · 方向盘/WASD 平移 · Q/E 升降层 · 左选层看全图'
+  }
+  return '拖拽旋转视角 · 双指缩放 · 方向盘 / 方向键移动'
+})
 
 function lerp(start, end, amt) {
   return (1 - amt) * start + amt * end
@@ -266,7 +292,13 @@ function update(timestamp) {
 }
 
 function startSession() {
-  if (!maze) return
+  if (sphereRenderer) {
+    sphereRenderer.dispose()
+    sphereRenderer = null
+  }
+  if (!maze) {
+    maze = createThreeMaze(mountRef.value)
+  }
   // 与 2D 版一致：先确定模拟空间（cellSize/offset/cx·cy/起点 reveal）
   if (props.finalizeLevelSetup) {
     props.finalizeLevelSetup(SIM_W, SIM_H)
@@ -278,6 +310,167 @@ function startSession() {
   if (animationId) cancelAnimationFrame(animationId)
   animationId = requestAnimationFrame(update)
   flashHint()
+}
+
+// ===== 球体关卡逻辑 (第七幕：寰宇天球) =====
+function loadSphere() {
+  const config = getLevelConfig(props.currentLevel - 1)
+  sphereN = config.sphereN || 4
+  const sphereR = 8.0
+
+  // 起点：第 0 面中心
+  const startF = 0
+  const startU = Math.floor(sphereN / 2)
+  const startV = Math.floor(sphereN / 2)
+  // 终点：第 1 面中心（对跖面）
+  const exitF = 1
+  const exitU = Math.floor(sphereN / 2)
+  const exitV = Math.floor(sphereN / 2)
+
+  spherePlayer = { f: startF, u: startU, v: startV }
+  sphereExit = { f: exitF, u: exitU, v: exitV }
+
+  let attempts = 0
+  let path = []
+  do {
+    sphereGrid = sphereMaze.createSphereGrid(sphereN, sphereR)
+    sphereMaze.generateSphereMaze(sphereGrid, sphereN)
+    sphereMaze.addExtraPassagesSphere(sphereGrid, sphereN, config.extraRate || 0.12)
+    path = sphereMaze.findSpherePath(sphereGrid, sphereN, spherePlayer, sphereExit)
+    attempts++
+  } while (path.length === 0 && attempts < 30)
+
+  // 默认启动模式为浏览整个球体 (isExplorationMode = false)
+  isExplorationMode.value = false
+}
+
+function startSphereSession() {
+  if (maze) {
+    maze.dispose()
+    maze = null
+  }
+  if (!sphereRenderer) {
+    sphereRenderer = createThreeSphereMaze(mountRef.value)
+  }
+  loadSphere()
+  sphereRenderer.buildSphereWalls(sphereGrid, sphereN, 8.0)
+  sphereRenderer.setPlayerCell(spherePlayer.f, spherePlayer.u, spherePlayer.v, false)
+  sphereRenderer.setExitCell(sphereExit.f, sphereExit.u, sphereExit.v)
+  sphereRenderer.setExplorationMode(isExplorationMode.value)
+  // 入场激发初始声波，展示声波扩散并点亮迷宫墙体
+  sphereRenderer.triggerSpherePing(200)
+
+  lastFrameTime = 0
+  lastPingTime = 0
+  if (animationId) cancelAnimationFrame(animationId)
+  animationId = requestAnimationFrame(sphereUpdate)
+  flashHint()
+}
+
+function sphereUpdate(timestamp) {
+  if (!props.isPlaying) return
+  if (!sphereRenderer) return
+
+  if (!lastFrameTime) lastFrameTime = timestamp
+  const dt = (timestamp - lastFrameTime) / 1000
+  lastFrameTime = timestamp
+
+  // (1) 麦克风声波检测（球体关卡专用防噪防抖阈值，避免轻微呼吸过度敏感）
+  if (props.getAudioLevels) {
+    const { peak, average } = props.getAudioLevels()
+    const now = Date.now()
+    if (peak > 168 && average > 25 && now - lastPingTime > 750) {
+      sphereRenderer.triggerSpherePing(peak)
+      lastPingTime = now
+    }
+  }
+
+  // (2) 狗狗寻路路线更新
+  if (props.dogActive) {
+    const path = sphereMaze.findSpherePath(sphereGrid, sphereN, spherePlayer, sphereExit)
+    sphereRenderer.updateDogSphere(path, true)
+  } else {
+    sphereRenderer.updateDogSphere([], false)
+  }
+
+  // (3) 三维渲染驱动
+  sphereRenderer.update(timestamp)
+
+  // (4) 终点胜出检测
+  if (spherePlayer.f === sphereExit.f && spherePlayer.u === sphereExit.u && spherePlayer.v === sphereExit.v) {
+    props.handleLevelComplete()
+    return
+  }
+
+  animationId = requestAnimationFrame(sphereUpdate)
+}
+
+function toggleSphereViewMode() {
+  if (!sphereRenderer) return
+  isExplorationMode.value = sphereRenderer.toggleExplorationMode()
+  flashHint()
+}
+
+function executeSphereCommand(cmd) {
+  if (!sphereRenderer) return
+  const res = sphereRenderer.handleScreenDirectionCommand(cmd)
+  if (res.moved && res.nextCell) {
+    spherePlayer = { f: res.nextCell.f, u: res.nextCell.u, v: res.nextCell.v }
+  }
+}
+
+// 触控滑动与点击检测
+let touchStartX = 0
+let touchStartY = 0
+let touchStartTime = 0
+let isDraggingOnCanvas = false
+
+function handlePointerDown(e) {
+  if (!props.isPlaying) return
+  touchStartX = e.clientX
+  touchStartY = e.clientY
+  touchStartTime = Date.now()
+  isDraggingOnCanvas = true
+}
+
+function handlePointerUp(e) {
+  if (!isDraggingOnCanvas) return
+  isDraggingOnCanvas = false
+
+  if (!isSphere.value) return
+
+  const dx = e.clientX - touchStartX
+  const dy = e.clientY - touchStartY
+  const dist = Math.hypot(dx, dy)
+  const dt = Date.now() - touchStartTime
+
+  if (isExplorationMode.value) {
+    // 探图模式（第三人称固定方向）：滑动控制移动方向
+    if (dist >= 20) {
+      const cmd = Math.abs(dy) > Math.abs(dx)
+        ? (dy < 0 ? 'up' : 'down')
+        : (dx < 0 ? 'left' : 'right')
+      executeSphereCommand(cmd)
+    } else if (dist <= 8 && dt < 300) {
+      // 短点击：轻触屏幕激发回声探测声波
+      sphereRenderer?.triggerSpherePing(200)
+    }
+  } else {
+    // 默认全景模式下：轻触产生声波雷达
+    if (dist <= 8 && dt < 300 && sphereRenderer) {
+      sphereRenderer.triggerSpherePing(200)
+    }
+  }
+}
+
+function startAppropriateSession() {
+  if (isSphere.value) {
+    startSphereSession()
+  } else if (isCube.value) {
+    startCubeSession()
+  } else {
+    startSession()
+  }
 }
 
 function flashHint() {
@@ -321,7 +514,13 @@ function loadCube() {
 }
 
 function startCubeSession() {
-  if (!maze) return
+  if (sphereRenderer) {
+    sphereRenderer.dispose()
+    sphereRenderer = null
+  }
+  if (!maze) {
+    maze = createThreeMaze(mountRef.value)
+  }
   loadCube()
   maze.buildCube(cubeGrid, cubeCols, cubeRows, cubeLayers)
   maze.setFollowPlayer(followOn.value)
@@ -498,18 +697,29 @@ function moveRelative(screenDir) {
 
 // 按当前关卡类型分发移动
 function dispatchMove(screenDir) {
-  if (isCube.value) moveCube(screenDir)
-  else moveRelative(screenDir)
+  if (isSphere.value) {
+    executeSphereCommand(screenDir)
+  } else if (isCube.value) {
+    moveCube(screenDir)
+  } else {
+    moveRelative(screenDir)
+  }
 }
 
 function handleKeydown(e) {
   const k = e.key
-  if (k === 'ArrowUp' || k === 'w') dispatchMove('up')
-  else if (k === 'ArrowRight' || k === 'd') dispatchMove('right')
-  else if (k === 'ArrowDown' || k === 's') dispatchMove('down')
-  else if (k === 'ArrowLeft' || k === 'a') dispatchMove('left')
+  if (k === 'ArrowUp' || k === 'w' || k === 'W') dispatchMove('up')
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') dispatchMove('right')
+  else if (k === 'ArrowDown' || k === 's' || k === 'S') dispatchMove('down')
+  else if (k === 'ArrowLeft' || k === 'a' || k === 'A') dispatchMove('left')
   else if (isCube.value && (k === 'e' || k === 'E' || k === 'PageUp')) moveCube('ascend')
   else if (isCube.value && (k === 'q' || k === 'Q' || k === 'PageDown')) moveCube('descend')
+  else if (isSphere.value && (k === 'c' || k === 'C' || k === 'Tab')) {
+    e.preventDefault()
+    toggleSphereViewMode()
+  } else if (isSphere.value && k === ' ') {
+    sphereRenderer?.triggerSpherePing(220)
+  }
 }
 
 function onPadDown(dir) {
@@ -631,40 +841,58 @@ watch(
   () => props.isPlaying,
   (val) => {
     if (val) {
-      nextTick(() => isCube.value ? startCubeSession() : startSession())
+      nextTick(() => startAppropriateSession())
     } else {
       if (animationId) { cancelAnimationFrame(animationId); animationId = null }
     }
   }
 )
 
+watch(
+  () => props.currentLevel,
+  () => {
+    if (props.isPlaying) {
+      nextTick(() => startAppropriateSession())
+    }
+  }
+)
+
 onMounted(() => {
-  maze = createThreeMaze(mountRef.value)
+  if (isSphere.value) {
+    sphereRenderer = createThreeSphereMaze(mountRef.value)
+  } else {
+    maze = createThreeMaze(mountRef.value)
+  }
 
   // 顶栏“探图模式”轮询的全局函数：
-  // 开启后环绕/缩放中心跟随玩家（以玩家为中心），关闭则恢复迷宫全局取景
-  window.__isCameraOn = () => followOn.value
+  // 球体模式下：切换固定方向第三人称探图 ⟷ 全局球体浏览；
+  // 直角/立方模式下：开启后环绕/缩放中心跟随玩家
+  window.__isCameraOn = () => isSphere.value ? isExplorationMode.value : followOn.value
   window.__toggleCamera = () => {
-    if (!maze) return
-    followOn.value = !followOn.value
-    maze.setFollowPlayer(followOn.value)
-    if (!followOn.value) {
-      if (isCube.value) maze.fitCubeCamera()
-      else maze.fitCamera()
+    if (isSphere.value) {
+      toggleSphereViewMode()
+    } else if (maze) {
+      followOn.value = !followOn.value
+      maze.setFollowPlayer(followOn.value)
+      if (!followOn.value) {
+        if (isCube.value) maze.fitCubeCamera()
+        else maze.fitCamera()
+      }
     }
   }
 
   window.addEventListener('resize', onResize)
   window.addEventListener('keydown', handleKeydown)
 
-  // 与 2D 版一致：处理“挂载时已在游戏中”（菜单/过渡 → 三维关卡）
+  // 处理“挂载时已在游戏中”（菜单/过渡 → 三维关卡）
   if (props.isPlaying) {
-    nextTick(() => isCube.value ? startCubeSession() : startSession())
+    nextTick(() => startAppropriateSession())
   }
 })
 
 function onResize() {
-  maze?.resize()
+  if (isSphere.value) sphereRenderer?.resize()
+  else maze?.resize()
 }
 
 onUnmounted(() => {
@@ -679,6 +907,8 @@ onUnmounted(() => {
   if (easterTimeout) clearTimeout(easterTimeout)
   maze?.dispose()
   maze = null
+  sphereRenderer?.dispose()
+  sphereRenderer = null
   delete window.__toggleCamera
   delete window.__isCameraOn
 })
@@ -870,4 +1100,54 @@ onUnmounted(() => {
 .easter-egg-icon.enter { transform: scale(0.15); opacity: 0.6; }
 .easter-egg-icon.peak  { transform: scale(1.0);  opacity: 1; }
 .easter-egg-icon.exit  { transform: scale(2.5);  opacity: 0; }
+
+/* ===== 球体关卡专属：全景浏览 / 第一人称探图切换按钮 ===== */
+.sphere-toggle-container {
+  position: absolute;
+  top: 76px;
+  right: 18px;
+  z-index: 25;
+  pointer-events: auto;
+}
+
+.sphere-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(10, 20, 35, 0.75);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 20px;
+  color: #00e5ff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 229, 255, 0.2);
+  transition: all 0.25s ease;
+  user-select: none;
+}
+
+.sphere-toggle-btn:hover {
+  background: rgba(15, 30, 50, 0.9);
+  border-color: #00e5ff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 18px rgba(0, 229, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.sphere-toggle-btn.is-fp {
+  border-color: rgba(255, 171, 0, 0.6);
+  color: #ffab00;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 14px rgba(255, 171, 0, 0.25);
+}
+
+.sphere-toggle-btn.is-fp:hover {
+  border-color: #ffab00;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 20px rgba(255, 171, 0, 0.45);
+}
+
+.sphere-toggle-btn .st-icon {
+  font-size: 16px;
+}
 </style>

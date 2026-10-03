@@ -1,6 +1,14 @@
 <template>
   <div id="game-container">
-    <canvas ref="canvasRef" id="gameCanvas"></canvas>
+    <canvas ref="canvasRef" id="gameCanvas" @pointerdown="handleCanvasPointerDown"></canvas>
+
+    <!-- 触摸方向盘（移动） -->
+    <div v-if="isPlaying" class="dpad" @pointerdown.stop>
+      <button class="pad-btn up"    @pointerdown.prevent="onPadDown('up')"    @pointerup="onPadUp" @pointerleave="onPadUp" @pointercancel="onPadUp" aria-label="上">▲</button>
+      <button class="pad-btn left"  @pointerdown.prevent="onPadDown('left')"  @pointerup="onPadUp" @pointerleave="onPadUp" @pointercancel="onPadUp" aria-label="左">◀</button>
+      <button class="pad-btn right" @pointerdown.prevent="onPadDown('right')" @pointerup="onPadUp" @pointerleave="onPadUp" @pointercancel="onPadUp" aria-label="右">▶</button>
+      <button class="pad-btn down"  @pointerdown.prevent="onPadDown('down')"  @pointerup="onPadUp" @pointerleave="onPadUp" @pointercancel="onPadUp" aria-label="下">▼</button>
+    </div>
 
     <LevelMenu
       v-if="gamePhase === 'menu'"
@@ -92,6 +100,14 @@ const props = defineProps({
   dogFinished: Boolean,
   dogAudioMode: String,
   updateDog: Function,
+  isPolarMode: Boolean,
+  rings: Number,
+  sectors: Number,
+  polarCenter: Object,
+  polarInnerR: Number,
+  polarRingWidth: Number,
+  polarSectorAngle: Number,
+  portals: Array,
 })
 
 const emit = defineEmits(['nextLevel', 'menu', 'restart', 'easterEggDone'])
@@ -302,8 +318,17 @@ function update(timestamp) {
   const w = canvasRef.value.width
   const h = canvasRef.value.height
 
-  const playerWX = props.offsetX + props.player.c * props.cellSize + props.cellSize / 2
-  const playerWY = props.offsetY + props.player.r * props.cellSize + props.cellSize / 2
+  let playerWX, playerWY
+  if (props.isPolarMode) {
+    const pc = props.polarCenter || { x: w / 2, y: h / 2 }
+    const rMid = (props.polarInnerR || 0) + (props.player.r + 0.5) * (props.polarRingWidth || props.cellSize)
+    const thetaMid = (props.player.s + 0.5) * (props.polarSectorAngle || (Math.PI * 2 / (props.sectors || 1)))
+    playerWX = pc.x + rMid * Math.cos(thetaMid)
+    playerWY = pc.y + rMid * Math.sin(thetaMid)
+  } else {
+    playerWX = props.offsetX + props.player.c * props.cellSize + props.cellSize / 2
+    playerWY = props.offsetY + props.player.r * props.cellSize + props.cellSize / 2
+  }
   props.player.drawX = lerp(props.player.drawX, playerWX, 0.3)
   props.player.drawY = lerp(props.player.drawY, playerWY, 0.3)
 
@@ -362,7 +387,14 @@ function update(timestamp) {
   }
 
   drawPings()
-  drawGrid()
+  if (props.isPolarMode) {
+    drawPolarGrid()
+    if (props.portals && props.portals.length >= 2) {
+      drawPolarPortals(timestamp)
+    }
+  } else {
+    drawGrid()
+  }
   drawPlayer()
   if (props.dogActive) drawDogPath()
   if (props.dogActive) drawDog()
@@ -436,6 +468,183 @@ function drawGrid() {
   })
 }
 
+function drawPolarGrid() {
+  const grid = props.grid
+  if (!grid || grid.length === 0) return
+
+  const w = canvasRef.value?.width || 800
+  const h = canvasRef.value?.height || 600
+  const pc = props.polarCenter || { x: w / 2, y: h / 2 }
+  const exitCell = props.exitCell
+
+  ctx.lineWidth = 2
+  ctx.lineCap = 'round'
+
+  // 中心基准圆环
+  if (props.polarInnerR > 0) {
+    ctx.save()
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'
+    ctx.lineWidth = 1.2
+    ctx.setLineDash([3, 5])
+    ctx.beginPath()
+    ctx.arc(pc.x, pc.y, props.polarInnerR, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.restore()
+  }
+
+  grid.forEach(cell => {
+    if (cell.revealTimer <= 0) return
+    const alpha = Math.min(1, cell.revealTimer)
+
+    // 绘制终点出口扇区（发光高亮）
+    if (cell.r === exitCell.r && cell.s === exitCell.s) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(pc.x, pc.y, cell.r2 - 2, cell.theta1 + 0.02, cell.theta2 - 0.02, false)
+      ctx.arc(pc.x, pc.y, cell.r1 + 2, cell.theta2 - 0.02, cell.theta1 + 0.02, true)
+      ctx.closePath()
+      const pulse = 0.6 + Math.sin(Date.now() * 0.005) * 0.4
+      ctx.fillStyle = `rgba(76, 175, 80, ${alpha * 0.7 * pulse})`
+      ctx.fill()
+      ctx.strokeStyle = `rgba(129, 199, 132, ${alpha * 0.9})`
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`
+    ctx.lineWidth = 2
+
+    // 内弧墙 (in)
+    if (cell.walls.in) {
+      ctx.beginPath()
+      ctx.arc(pc.x, pc.y, cell.r1, cell.theta1, cell.theta2)
+      ctx.stroke()
+    }
+    // 外弧墙 (out)
+    if (cell.walls.out) {
+      ctx.beginPath()
+      ctx.arc(pc.x, pc.y, cell.r2, cell.theta1, cell.theta2)
+      ctx.stroke()
+    }
+    // 逆时针起始径向墙 (ccw)
+    if (cell.walls.ccw) {
+      ctx.beginPath()
+      ctx.moveTo(pc.x + cell.r1 * Math.cos(cell.theta1), pc.y + cell.r1 * Math.sin(cell.theta1))
+      ctx.lineTo(pc.x + cell.r2 * Math.cos(cell.theta1), pc.y + cell.r2 * Math.sin(cell.theta1))
+      ctx.stroke()
+    }
+    // 顺时针截止径向墙 (cw)
+    if (cell.walls.cw) {
+      ctx.beginPath()
+      ctx.moveTo(pc.x + cell.r1 * Math.cos(cell.theta2), pc.y + cell.r1 * Math.sin(cell.theta2))
+      ctx.lineTo(pc.x + cell.r2 * Math.cos(cell.theta2), pc.y + cell.r2 * Math.sin(cell.theta2))
+      ctx.stroke()
+    }
+  })
+}
+
+function hexToRgba(hex, alpha = 1) {
+  if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return `rgba(76, 175, 80, ${alpha})`
+  const clean = hex.replace('#', '')
+  const r = parseInt(clean.substring(0, 2), 16) || 0
+  const g = parseInt(clean.substring(2, 4), 16) || 0
+  const b = parseInt(clean.substring(4, 6), 16) || 0
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function drawPolarPortals(now) {
+  if (!props.portals || props.portals.length < 2) return
+
+  const w = canvasRef.value?.width || 800
+  const h = canvasRef.value?.height || 600
+  const pc = props.polarCenter || { x: w / 2, y: h / 2 }
+  const cellSize = props.cellSize || 30
+
+  props.portals.forEach(portal => {
+    // 查找对应网格的曝光度
+    const cellIdx = ((portal.s % props.sectors) + props.sectors) % props.sectors + portal.r * props.sectors
+    const cell = props.grid?.[cellIdx]
+    const reveal = cell ? cell.revealTimer : 0
+    // 即使在黑暗中也保有 0.35 的最低神秘微光，让玩家在探索中有方向感；被声波扫中时爆发展示
+    const alpha = Math.min(1, 0.35 + reveal * 0.65)
+    const color = portal.color || '#00e5ff'
+    const lightColor = portal.lightColor || '#b2ebf2'
+
+    // 1. 扇区背景微光充能
+    if (portal.r1 && portal.r2 && portal.theta1 !== undefined && portal.theta2 !== undefined) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(pc.x, pc.y, portal.r2 - 2, portal.theta1 + 0.03, portal.theta2 - 0.03, false)
+      ctx.arc(pc.x, pc.y, portal.r1 + 2, portal.theta2 - 0.03, portal.theta1 + 0.03, true)
+      ctx.closePath()
+      const pulseBg = 0.5 + Math.sin(now * 0.004 + (portal.pairId || 0) * 2) * 0.3
+      ctx.fillStyle = hexToRgba(color, alpha * 0.22 * pulseBg)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    if (portal.cx === undefined || portal.cy === undefined) return
+
+    // 2. 传送阵动态双层旋转能量环绘制
+    const cx = portal.cx
+    const cy = portal.cy
+    const radius = cellSize * 0.36
+    const isEntrance = portal.id?.startsWith('A')
+
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.globalAlpha = alpha
+
+    // 外层逆向旋转量子能量环
+    ctx.save()
+    ctx.rotate(isEntrance ? now * 0.0025 : -now * 0.0025)
+    ctx.beginPath()
+    ctx.arc(0, 0, radius, 0, Math.PI * 2)
+    ctx.strokeStyle = color
+    ctx.lineWidth = 2.4
+    ctx.shadowBlur = 12 * alpha
+    ctx.shadowColor = color
+    ctx.setLineDash([radius * 0.9, radius * 0.45])
+    ctx.stroke()
+    ctx.restore()
+
+    // 内层顺向旋转环
+    ctx.save()
+    ctx.rotate(isEntrance ? -now * 0.004 : now * 0.004)
+    ctx.beginPath()
+    ctx.arc(0, 0, radius * 0.62, 0, Math.PI * 2)
+    ctx.strokeStyle = lightColor
+    ctx.lineWidth = 1.8
+    ctx.shadowBlur = 8 * alpha
+    ctx.shadowColor = lightColor
+    ctx.setLineDash([radius * 0.5, radius * 0.35])
+    ctx.stroke()
+    ctx.restore()
+
+    // 核心脉冲光斑
+    const corePulse = 0.75 + Math.sin(now * 0.007 + (portal.pairId || 0)) * 0.25
+    ctx.beginPath()
+    ctx.arc(0, 0, radius * 0.35 * corePulse, 0, Math.PI * 2)
+    ctx.fillStyle = color
+    ctx.shadowBlur = 10 * alpha
+    ctx.shadowColor = color
+    ctx.fill()
+
+    // 核心希腊字母符文 (α / β / γ)
+    ctx.font = `bold ${Math.round(radius * 0.75)}px 'Segoe UI', system-ui, sans-serif`
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.shadowBlur = 6
+    ctx.shadowColor = '#ffffff'
+    ctx.fillText(portal.name || 'α', 0, 0.5)
+
+    ctx.restore()
+  })
+}
+
 function drawPlayer() {
   const player = props.player
   const cellSize = props.cellSize
@@ -455,60 +664,90 @@ function drawDogPath() {
   const dogPos = props.dogPos
   const idx = dogPos?.idx || 0
 
-  // 画已走过的路径（发光轨迹）
-  ctx.save()
-  ctx.strokeStyle = 'rgba(76, 175, 80, 0.4)'
-  ctx.lineWidth = 3
-  ctx.lineCap = 'round'
-  ctx.shadowBlur = 8
-  ctx.shadowColor = 'rgba(76, 175, 80, 0.6)'
-  ctx.beginPath()
-  ctx.moveTo(path[0].x, path[0].y)
-  for (let i = 1; i <= idx && i < path.length; i++) {
-    ctx.lineTo(path[i].x, path[i].y)
-  }
-  // 连线到当前狗狗位置
-  if (idx < path.length) {
-    ctx.lineTo(dogPos.x, dogPos.y)
-  }
-  ctx.stroke()
-  ctx.shadowBlur = 0
-  ctx.restore()
+  // 1. 绘制已走过的实线发光轨迹（按传送折跃段分色绘制）
+  let i = 0
+  while (i <= idx && i < path.length) {
+    const segColor = path[i].color || '#4CAF50'
+    ctx.save()
+    ctx.strokeStyle = hexToRgba(segColor, 0.55)
+    ctx.lineWidth = 3
+    ctx.lineCap = 'round'
+    ctx.shadowBlur = 9
+    ctx.shadowColor = hexToRgba(segColor, 0.8)
+    ctx.beginPath()
+    ctx.moveTo(path[i].x, path[i].y)
 
-  // 画未来路径（虚线效果）
-  ctx.save()
-  ctx.strokeStyle = 'rgba(76, 175, 80, 0.15)'
-  ctx.lineWidth = 2
-  ctx.lineCap = 'round'
-  ctx.setLineDash([6, 8])
-  ctx.beginPath()
-  ctx.moveTo(dogPos.x, dogPos.y)
-  for (let i = idx + 1; i < path.length; i++) {
-    ctx.lineTo(path[i].x, path[i].y)
-  }
-  ctx.stroke()
-  ctx.setLineDash([])
-  ctx.restore()
+    let j = i + 1
+    while (j <= idx && j < path.length && !path[j].isWarp && path[j].color === segColor) {
+      ctx.lineTo(path[j].x, path[j].y)
+      j++
+    }
 
-  // 终点高亮标记
+    // 连线到当前狗狗位置（若仍在当前色段内）
+    if (j > idx && idx < path.length && !path[idx]?.isWarp && (path[idx]?.color || '#4CAF50') === segColor) {
+      ctx.lineTo(dogPos.x, dogPos.y)
+    }
+
+    ctx.stroke()
+    ctx.shadowBlur = 0
+    ctx.restore()
+
+    i = j
+  }
+
+  // 2. 绘制未来待探索虚线路径（按传送折跃段分色，折跃处自然断开）
+  let fi = idx
+  while (fi < path.length) {
+    const segColor = path[fi].color || '#4CAF50'
+    ctx.save()
+    ctx.strokeStyle = hexToRgba(segColor, 0.22)
+    ctx.lineWidth = 2
+    ctx.lineCap = 'round'
+    ctx.setLineDash([6, 8])
+    ctx.beginPath()
+
+    if (fi === idx) {
+      ctx.moveTo(dogPos.x, dogPos.y)
+    } else {
+      ctx.moveTo(path[fi].x, path[fi].y)
+    }
+
+    let fj = fi + 1
+    while (fj < path.length && !path[fj].isWarp && path[fj].color === segColor) {
+      ctx.lineTo(path[fj].x, path[fj].y)
+      fj++
+    }
+
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.restore()
+
+    fi = fj
+  }
+
+  // 终点高亮标记（使用最终到达出口段的专属色彩）
   const last = path[path.length - 1]
+  const lastColor = last.color || '#4CAF50'
   ctx.save()
-  ctx.fillStyle = 'rgba(76, 175, 80, 0.3)'
+  ctx.fillStyle = hexToRgba(lastColor, 0.35)
   ctx.beginPath()
-  ctx.arc(last.x, last.y, (props.cellSize || 30) * 0.25, 0, Math.PI * 2)
+  ctx.arc(last.x, last.y, (props.cellSize || 30) * 0.26, 0, Math.PI * 2)
   ctx.fill()
   ctx.restore()
 }
 
 function drawDog() {
   const dogPos = props.dogPos
-  // 狗狗用绿色发光点表示
+  // 狗狗光芒颜色与当前所在折跃段颜色实时保持一致！
+  const curPt = props.dogWorldPath?.[dogPos?.idx] || props.dogWorldPath?.[0]
+  const dogColor = curPt?.color || '#4CAF50'
+
   ctx.save()
   ctx.beginPath()
-  ctx.arc(dogPos.x, dogPos.y, (props.cellSize || 30) * 0.14, 0, Math.PI * 2)
-  ctx.fillStyle = '#4CAF50'
-  ctx.shadowBlur = 14
-  ctx.shadowColor = '#4CAF50'
+  ctx.arc(dogPos.x, dogPos.y, (props.cellSize || 30) * 0.15, 0, Math.PI * 2)
+  ctx.fillStyle = dogColor
+  ctx.shadowBlur = 15
+  ctx.shadowColor = dogColor
   ctx.fill()
   ctx.shadowBlur = 0
   ctx.restore()
@@ -627,13 +866,31 @@ function handleTouchEnd(e) {
     const touchEndY = e.changedTouches[0].clientY
     const dx = touchEndX - touchStartX
     const dy = touchEndY - touchStartY
+    const dist = Math.hypot(dx, dy)
 
-    if (Math.abs(dx) > Math.abs(dy)) {
-      if (dx > 30) props.movePlayer('right')
-      else if (dx < -30) props.movePlayer('left')
+    if (dist >= 18) {
+      // 触控滑动：派发主导方向与二维滑动向量
+      const dir = Math.abs(dx) > Math.abs(dy)
+        ? (dx > 0 ? 'right' : 'left')
+        : (dy > 0 ? 'down' : 'up')
+      props.movePlayer(dir, { dx, dy })
     } else {
-      if (dy > 30) props.movePlayer('down')
-      else if (dy < -30) props.movePlayer('up')
+      // 触控轻点（Tap）：朝点击所在方位迈步
+      const canvas = canvasRef.value
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect()
+        const sx = touchEndX - rect.left
+        const sy = touchEndY - rect.top
+        const world = screenToWorld(sx, sy)
+        const tdx = world.wx - props.player.drawX
+        const tdy = world.wy - props.player.drawY
+        if (Math.hypot(tdx, tdy) > 10) {
+          const dir = Math.abs(tdx) > Math.abs(tdy)
+            ? (tdx > 0 ? 'right' : 'left')
+            : (tdy > 0 ? 'down' : 'up')
+          props.movePlayer(dir, { dx: tdx, dy: tdy })
+        }
+      }
     }
   }
 
@@ -643,11 +900,56 @@ function handleTouchEnd(e) {
   }
 }
 
+// 桌面鼠标点击画布：朝点击方位迈步
+function handleCanvasPointerDown(e) {
+  if (!props.isPlaying || e.pointerType === 'touch') return
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const rect = canvas.getBoundingClientRect()
+  const sx = e.clientX - rect.left
+  const sy = e.clientY - rect.top
+  const world = screenToWorld(sx, sy)
+  const dx = world.wx - props.player.drawX
+  const dy = world.wy - props.player.drawY
+  if (Math.hypot(dx, dy) > 10) {
+    const dir = Math.abs(dx) > Math.abs(dy)
+      ? (dx > 0 ? 'right' : 'left')
+      : (dy > 0 ? 'down' : 'up')
+    props.movePlayer(dir, { dx, dy })
+  }
+}
+
 function handleKeydown(e) {
-  if (e.key === 'ArrowUp' || e.key === 'w') props.movePlayer('up')
-  if (e.key === 'ArrowRight' || e.key === 'd') props.movePlayer('right')
-  if (e.key === 'ArrowDown' || e.key === 's') props.movePlayer('down')
-  if (e.key === 'ArrowLeft' || e.key === 'a') props.movePlayer('left')
+  const k = e.key
+  if (k === 'ArrowUp' || k === 'w' || k === 'W') props.movePlayer('up', { dx: 0, dy: -1 })
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') props.movePlayer('right', { dx: 1, dy: 0 })
+  else if (k === 'ArrowDown' || k === 's' || k === 'S') props.movePlayer('down', { dx: 0, dy: 1 })
+  else if (k === 'ArrowLeft' || k === 'a' || k === 'A') props.movePlayer('left', { dx: -1, dy: 0 })
+}
+
+// ===== 触摸方向盘逻辑 =====
+let padRepeatTimer = null
+function dispatchPadMove(dir) {
+  const vecMap = {
+    up: { dx: 0, dy: -1 },
+    down: { dx: 0, dy: 1 },
+    left: { dx: -1, dy: 0 },
+    right: { dx: 1, dy: 0 },
+  }
+  props.movePlayer(dir, vecMap[dir])
+}
+
+function onPadDown(dir) {
+  dispatchPadMove(dir)
+  onPadUp()
+  padRepeatTimer = setInterval(() => dispatchPadMove(dir), 180)
+}
+
+function onPadUp() {
+  if (padRepeatTimer) {
+    clearInterval(padRepeatTimer)
+    padRepeatTimer = null
+  }
 }
 
 function handleWheel(e) {
@@ -725,6 +1027,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  onPadUp()
   window.removeEventListener('resize', resizeCanvas)
   window.removeEventListener('touchstart', handleTouchStart)
   window.removeEventListener('touchmove', handleTouchMove)
@@ -834,4 +1137,48 @@ canvas {
   transform: scale(2.5);
   opacity: 0;
 }
+
+/* 移动方向盘 */
+.dpad {
+  position: absolute;
+  right: 16px;
+  bottom: 18px;
+  --pad: clamp(38px, 10vw, 46px);
+  width: calc(var(--pad) * 3);
+  height: calc(var(--pad) * 3);
+  z-index: 40;
+  pointer-events: auto;
+}
+.pad-btn {
+  position: absolute;
+  width: var(--pad);
+  height: var(--pad);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: clamp(16px, 4.5vw, 22px);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.pad-btn:active {
+  background: rgba(76, 175, 80, 0.3);
+  border-color: rgba(76, 175, 80, 0.8);
+  color: #4CAF50;
+}
+.pad-btn.up    { top: 0; left: var(--pad); }
+.pad-btn.left  { top: var(--pad); left: 0; }
+.pad-btn.right { top: var(--pad); left: calc(var(--pad) * 2); }
+.pad-btn.down  { top: calc(var(--pad) * 2); left: var(--pad); }
 </style>
